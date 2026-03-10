@@ -37,8 +37,10 @@ Exposed tools:
 
 var mcpInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install repited as a global MCP server for Claude Code",
-	Long: `Register repited in Claude Code's global MCP settings (~/.claude.json).
+	Short: "Install repited as an MCP server for Claude Code",
+	Long: `Register repited in Claude Code's MCP settings.
+
+Use --global to write to ~/.claude.json (global) or --project to write to .mcp.json (project-level).
 
 After install, Claude Code will have access to these tools:
   flow       — Run full development workflow (build, test, lint, commit)
@@ -48,7 +50,8 @@ After install, Claude Code will have access to these tools:
 
 Usage:
   go install github.com/inovacc/repited@latest
-  repited mcp install --global --client claude`,
+  repited mcp install --global --client claude
+  repited mcp install --project --client claude`,
 	RunE: runMCPInstall,
 }
 
@@ -64,8 +67,10 @@ func init() {
 	mcpCmd.AddCommand(mcpInstallCmd)
 	mcpCmd.AddCommand(mcpUninstallCmd)
 
-	mcpInstallCmd.Flags().BoolP("global", "g", false, "install globally (required)")
+	mcpInstallCmd.Flags().BoolP("global", "g", false, "install globally (~/.claude.json)")
+	mcpInstallCmd.Flags().BoolP("project", "p", false, "install for this project (.mcp.json)")
 	mcpInstallCmd.Flags().StringP("client", "c", "claude", "target client (claude)")
+	mcpInstallCmd.MarkFlagsMutuallyExclusive("global", "project")
 
 	mcpUninstallCmd.Flags().BoolP("global", "g", false, "uninstall globally")
 	mcpUninstallCmd.Flags().StringP("client", "c", "claude", "target client (claude)")
@@ -73,10 +78,11 @@ func init() {
 
 func runMCPInstall(cmd *cobra.Command, _ []string) error {
 	global, _ := cmd.Flags().GetBool("global")
+	project, _ := cmd.Flags().GetBool("project")
 	client, _ := cmd.Flags().GetString("client")
 
-	if !global {
-		return fmt.Errorf("--global flag is required (project-level install not yet supported)")
+	if !global && !project {
+		return fmt.Errorf("specify --global or --project to choose the install scope")
 	}
 
 	if client != "claude" {
@@ -89,15 +95,34 @@ func runMCPInstall(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("finding repited binary: %w", err)
 	}
 
+	if project {
+		projectDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting working directory: %w", err)
+		}
+
+		if err := mcpserver.InstallProject(binaryPath, projectDir); err != nil {
+			return fmt.Errorf("installing MCP server: %w", err)
+		}
+
+		_, _ = fmt.Fprintln(os.Stdout, "Installed repited MCP server for this project (.mcp.json)")
+		_, _ = fmt.Fprintf(os.Stdout, "  Binary: %s\n", binaryPath)
+		_, _ = fmt.Fprintf(os.Stdout, "  Config: .mcp.json\n")
+		_, _ = fmt.Fprintf(os.Stdout, "  Tools:  flow, scan, stats, relations\n")
+		_, _ = fmt.Fprintln(os.Stdout, "\nRestart Claude Code to activate.")
+
+		return nil
+	}
+
 	if err := mcpserver.InstallGlobal(binaryPath); err != nil {
 		return fmt.Errorf("installing MCP server: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(os.Stdout, "Installed repited MCP server globally for Claude Code\n")
+	_, _ = fmt.Fprintln(os.Stdout, "Installed repited MCP server globally for Claude Code")
 	_, _ = fmt.Fprintf(os.Stdout, "  Binary: %s\n", binaryPath)
 	_, _ = fmt.Fprintf(os.Stdout, "  Config: ~/.claude.json\n")
 	_, _ = fmt.Fprintf(os.Stdout, "  Tools:  flow, scan, stats, relations\n")
-	_, _ = fmt.Fprintf(os.Stdout, "\nRestart Claude Code to activate.\n")
+	_, _ = fmt.Fprintln(os.Stdout, "\nRestart Claude Code to activate.")
 
 	return nil
 }

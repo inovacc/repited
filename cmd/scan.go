@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +32,7 @@ func init() {
 	scanCmd.Flags().BoolP("projects", "p", false, "show per-project breakdown")
 	scanCmd.Flags().StringP("db", "", defaultDBPath(), "SQLite database path")
 	scanCmd.Flags().StringSlice("exclude", nil, "Additional directory names to skip during scan")
+	scanCmd.Flags().Bool("json", false, "output results as JSON")
 }
 
 func defaultDBPath() string {
@@ -48,6 +50,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	showProjects, _ := cmd.Flags().GetBool("projects")
 	dbPath, _ := cmd.Flags().GetString("db")
 	exclude, _ := cmd.Flags().GetStringSlice("exclude")
+	jsonOutput, _ := cmd.Flags().GetBool("json")
 
 	_, _ = fmt.Fprintf(os.Stdout, "Scanning %s (depth=%d)...\n", dir, depth)
 
@@ -80,6 +83,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 	scanID, err := db.SaveScan(dir, result)
 	if err != nil {
 		return fmt.Errorf("saving scan: %w", err)
+	}
+
+	if jsonOutput {
+		return printScanJSON(result, scanID, dbPath)
 	}
 
 	_, _ = fmt.Fprintf(os.Stdout, "Found %d project(s) with .scripts — saved to %s (scan #%d)\n\n", len(result.Projects), dbPath, scanID)
@@ -116,6 +123,73 @@ func runScan(cmd *cobra.Command, args []string) error {
 	if logPath, err := log.Save(); err == nil {
 		_, _ = fmt.Fprintf(os.Stdout, "Log: %s\n", logPath)
 	}
+
+	return nil
+}
+
+type scanJSONOutput struct {
+	Projects   []scanJSONProject   `json:"projects"`
+	ToolCounts []scanJSONToolCount `json:"tool_counts"`
+	ScanID     int64               `json:"scan_id"`
+	DBPath     string              `json:"db_path"`
+}
+
+type scanJSONProject struct {
+	Path    string           `json:"path"`
+	Scripts []scanJSONScript `json:"scripts"`
+}
+
+type scanJSONScript struct {
+	Name     string   `json:"name"`
+	Commands []string `json:"commands"`
+}
+
+type scanJSONToolCount struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+func printScanJSON(result *scanner.ScanResult, scanID int64, dbPath string) error {
+	projects := make([]scanJSONProject, 0, len(result.Projects))
+
+	for _, p := range result.Projects {
+		scripts := make([]scanJSONScript, 0, len(p.Scripts))
+
+		for _, s := range p.Scripts {
+			scripts = append(scripts, scanJSONScript{
+				Name:     s.Name,
+				Commands: s.Commands,
+			})
+		}
+
+		projects = append(projects, scanJSONProject{
+			Path:    p.Path,
+			Scripts: scripts,
+		})
+	}
+
+	toolCounts := make([]scanJSONToolCount, 0, len(result.ToolCounts))
+
+	for _, tc := range result.ToolCounts {
+		toolCounts = append(toolCounts, scanJSONToolCount{
+			Name:  tc.Name,
+			Count: tc.Count,
+		})
+	}
+
+	out := scanJSONOutput{
+		Projects:   projects,
+		ToolCounts: toolCounts,
+		ScanID:     scanID,
+		DBPath:     dbPath,
+	}
+
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling JSON: %w", err)
+	}
+
+	_, _ = fmt.Fprintln(os.Stdout, string(data))
 
 	return nil
 }

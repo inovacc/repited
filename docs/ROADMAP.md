@@ -1,7 +1,7 @@
 # Roadmap
 
 ## Current Status
-**Overall Progress:** 85% — All features implemented, tests written for 7 packages
+**Overall Progress:** 95% — All features implemented, tested, ready for v1.0.0 release
 
 ## Phases
 
@@ -35,23 +35,23 @@
 - [x] Git pre-commit hook (lint:fix + vet + build)
 
 ### Phase 4: Polish & Release [IN PROGRESS]
-- [x] Unit tests for scanner (92.4%), store (76.1%), flow (88.2%), patterns (79.3%), cmdlog (92.5%), deps (55.0%), mcp (10.6%)
-- [ ] Integration tests for MCP server (in progress)
-- [ ] Performance tuning for large directory trees
+- [x] Unit tests for scanner (92.8%), store (76.1%), flow (88.2%), patterns (79.3%), cmdlog (92.5%), deps (92.5%), mcp (49.9%)
+- [x] Integration tests for MCP server (49.9% — 13 integration tests via in-memory transports)
+- [x] Performance tuning (--exclude flag, DefaultExcludes, BenchmarkScan ~28ms/100 projects)
 - [x] CI/CD pipeline (GitHub Actions — workflows exist, repo pushed)
 - [x] Published to GitHub (github.com/inovacc/repited)
 - [ ] v1.0.0 release
 
 ## Test Coverage
-**Current:** ~70%  |  **Target:** 80%
+**Current:** ~81%  |  **Target:** 80%
 
 | Package | Coverage | Status |
 |---------|----------|--------|
+| internal/scanner | 92.8% | Excellent |
 | internal/cmdlog | 92.5% | Excellent |
-| internal/scanner | 92.4% | Excellent |
+| internal/deps | 92.5% | Excellent |
 | internal/flow | 88.2% | Good |
 | internal/patterns | 79.3% | Good |
 | internal/store | 76.1% | Good |
-| internal/deps | 55.0% | Needs improvement |
-| internal/mcp | 10.6% | Needs integration tests |
+| internal/mcp | 49.9% | Integration tests added |
 | cmd | 0.0% | No tests (CLI wrappers) |

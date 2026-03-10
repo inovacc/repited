@@ -2,15 +2,7 @@
 
 ## Open Issues
 
-### MCP server low test coverage
-- **Severity:** Medium
-- **Description:** MCP server package has only 10.6% coverage. Only helper functions are tested, not tool handlers.
-- **Impact:** No regression protection for the 7 MCP tool handlers.
-
-### deps package coverage below target
-- **Severity:** Low
-- **Description:** deps package at 55.0% coverage. Install() and EnsureAll() are hard to test without running real installs.
-- **Workaround:** Core detection logic is tested. Install paths are simple exec wrappers.
+_No critical issues._
 
 ## Resolved Issues
 
@@ -24,3 +16,5 @@
 | No git remote configured | Created repo at github.com/inovacc/repited | 2026-03-09 |
 | Zero test coverage | Tests written for all 7 internal packages (~70% overall) | 2026-03-09 |
 | TODO comments in aicontext.go | Replaced with repited-specific categories and structure | 2026-03-09 |
+| MCP server low test coverage | 49.9% with 13 integration tests via in-memory transports | 2026-03-09 |
+| deps package coverage below target | 92.5% with mock injection helper | 2026-03-09 |

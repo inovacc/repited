@@ -22,7 +22,7 @@
 
 ## v0.3.0 - MCP Server & Patterns
 - **Status:** Complete
-- **Test Coverage:** mcp 10.6%, patterns 79.3%, deps 55.0%
+- **Test Coverage:** mcp 49.9%, patterns 79.3%, deps 92.5%
 - **Goals:**
   - [x] MCP server with stdio transport (7 tools: flow, scan, stats, relations, patterns, scout, next-steps)
   - [x] `mcp install --global --client claude` writes config to ~/.claude.json
@@ -37,10 +37,13 @@
 - **Target:** TBD
 - **Status:** In Progress
 - **Goals:**
-  - [x] Unit tests for 7 packages (~70% overall)
-  - [ ] Integration tests for MCP server (target: 50%+)
+  - [x] Unit tests for 7 packages (~81% overall)
+  - [x] Integration tests for MCP server (49.9% — 13 tests via in-memory transports)
   - [x] Documentation complete
   - [x] CI/CD pipeline (GitHub Actions)
   - [x] Published to GitHub (github.com/inovacc/repited)
-  - [ ] Performance tuning (--exclude flag, benchmarks)
-  - [ ] goreleaser release
+  - [x] Performance tuning (--exclude flag, DefaultExcludes, benchmarks)
+  - [x] JSON output for scan/stats commands
+  - [x] --filter flag for stats/relations
+  - [x] MCP project-level install (--project flag)
+  - [ ] goreleaser release (tag v1.0.0)

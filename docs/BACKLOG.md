@@ -11,15 +11,11 @@
 ## Items
 
 ### P1 - This Sprint
-- **Integration tests for MCP server** — Medium — Test — 10.6% coverage, need tool handler tests
-- **Improve deps package coverage** — Small — Test — 55.0%, target 70%+
+- **v1.0.0 release with goreleaser** — Small — Infrastructure — Tag and release
 
 ### P2 - This Quarter
-- **JSON output format for scan/stats** — Small — Feature
-- **Filter by tool name or pattern** — Small — Feature
 - **Pattern editing CLI** — Medium — Feature — Enable/disable rules, modify patterns
 - **Custom user-defined patterns** — Medium — Feature — Let users create their own workflow patterns
-- **v1.0.0 release with goreleaser** — Medium — Infrastructure
 
 ### P3 - Future
 - **Interactive TUI mode** — Large — Feature
@@ -50,3 +46,8 @@
 | GitHub remote setup | Published to github.com/inovacc/repited | 2026-03-09 |
 | CI/CD pipeline | GitHub Actions workflows active | 2026-03-09 |
 | Exclude patterns flag | Added --exclude flag and DefaultExcludes | 2026-03-09 |
+| Integration tests for MCP server | 49.9% coverage, 13 integration tests | 2026-03-09 |
+| Improve deps package coverage | 92.5% coverage | 2026-03-09 |
+| JSON output format for scan/stats | Added --json flag | 2026-03-09 |
+| Filter by tool name or pattern | Added --filter flag to stats/relations | 2026-03-09 |
+| MCP project-level install | Added --project flag for .mcp.json | 2026-03-09 |

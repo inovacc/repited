@@ -46,12 +46,23 @@
 - **Status:** Completed
 - **Description:** Auto-install omni and scout via go install if not found
 
-## Proposed Features
+### JSON Output Format
+- **Status:** Completed
+- **Description:** `--json` flag on scan and stats commands for machine-readable output
 
-### JSON/CSV Output Formats
-- **Priority:** P2
-- **Status:** Proposed
-- **Description:** Output scan/stats results as JSON or CSV for scripting
+### Tool Filter
+- **Status:** Completed
+- **Description:** `--filter` flag on stats and relations commands for narrowing results by tool name
+
+### Project-Level MCP Install
+- **Status:** Completed
+- **Description:** `mcp install --project` writes .mcp.json for per-project MCP config
+
+### Exclude Patterns
+- **Status:** Completed
+- **Description:** `--exclude` flag and DefaultExcludes (node_modules, vendor, etc.) for scanner
+
+## Proposed Features
 
 ### Interactive TUI
 - **Priority:** P3

@@ -33,6 +33,7 @@ func init() {
 	relationsCmd.Flags().BoolP("cooccur", "", true, "show co-occurrence pairs")
 	relationsCmd.Flags().BoolP("positions", "", true, "show tool position analysis (first/middle/last)")
 	relationsCmd.Flags().BoolP("clusters", "", true, "show tool clusters by category")
+	relationsCmd.Flags().StringP("filter", "f", "", "filter tools by name (case-insensitive substring match)")
 }
 
 func runRelations(cmd *cobra.Command, _ []string) error {
@@ -44,6 +45,7 @@ func runRelations(cmd *cobra.Command, _ []string) error {
 	showCooccur, _ := cmd.Flags().GetBool("cooccur")
 	showPos, _ := cmd.Flags().GetBool("positions")
 	showClusters, _ := cmd.Flags().GetBool("clusters")
+	filter, _ := cmd.Flags().GetString("filter")
 
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		return fmt.Errorf("database not found at %s — run 'repited scan' first", dbPath)
@@ -72,26 +74,30 @@ func runRelations(cmd *cobra.Command, _ []string) error {
 		_, _ = fmt.Fprintf(os.Stdout, "Analyzing scan #%d (%s)\n\n", scanID, scans[0].RootDir)
 	}
 
+	if filter != "" {
+		_, _ = fmt.Fprintf(os.Stdout, "Filtered by: %s\n\n", filter)
+	}
+
 	if showClusters {
-		if err := printClusters(db, scanID); err != nil {
+		if err := printClusters(db, scanID, filter); err != nil {
 			return err
 		}
 	}
 
 	if showSeq {
-		if err := printSequences(db, scanID, minCount, limit); err != nil {
+		if err := printSequences(db, scanID, minCount, limit, filter); err != nil {
 			return err
 		}
 	}
 
 	if showCooccur {
-		if err := printCooccurrences(db, scanID, minCount, limit); err != nil {
+		if err := printCooccurrences(db, scanID, minCount, limit, filter); err != nil {
 			return err
 		}
 	}
 
 	if showPos {
-		if err := printPositions(db, scanID, limit); err != nil {
+		if err := printPositions(db, scanID, limit, filter); err != nil {
 			return err
 		}
 	}
@@ -99,10 +105,14 @@ func runRelations(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func printClusters(db *store.Store, scanID int64) error {
+func printClusters(db *store.Store, scanID int64, filter string) error {
 	clusters, err := db.ToolClusters(scanID)
 	if err != nil {
 		return fmt.Errorf("querying clusters: %w", err)
+	}
+
+	if filter != "" {
+		clusters = filterClusterTools(clusters, filter)
 	}
 
 	_, _ = fmt.Fprintln(os.Stdout, "═══ TOOL CLUSTERS (by category) ═══")
@@ -134,10 +144,14 @@ func printClusters(db *store.Store, scanID int64) error {
 	return nil
 }
 
-func printSequences(db *store.Store, scanID int64, minCount int, limit int) error {
+func printSequences(db *store.Store, scanID int64, minCount int, limit int, filter string) error {
 	seqs, err := db.ToolSequences(scanID, minCount, limit)
 	if err != nil {
 		return fmt.Errorf("querying sequences: %w", err)
+	}
+
+	if filter != "" {
+		seqs = filterSequences(seqs, filter)
 	}
 
 	if len(seqs) == 0 {
@@ -167,10 +181,14 @@ func printSequences(db *store.Store, scanID int64, minCount int, limit int) erro
 	return nil
 }
 
-func printCooccurrences(db *store.Store, scanID int64, minCount int, limit int) error {
+func printCooccurrences(db *store.Store, scanID int64, minCount int, limit int, filter string) error {
 	pairs, err := db.ToolCooccurrences(scanID, minCount, limit)
 	if err != nil {
 		return fmt.Errorf("querying cooccurrences: %w", err)
+	}
+
+	if filter != "" {
+		pairs = filterCooccurrences(pairs, filter)
 	}
 
 	if len(pairs) == 0 {
@@ -200,10 +218,14 @@ func printCooccurrences(db *store.Store, scanID int64, minCount int, limit int) 
 	return nil
 }
 
-func printPositions(db *store.Store, scanID int64, limit int) error {
+func printPositions(db *store.Store, scanID int64, limit int, filter string) error {
 	steps, err := db.ToolPositions(scanID, limit*3)
 	if err != nil {
 		return fmt.Errorf("querying positions: %w", err)
+	}
+
+	if filter != "" {
+		steps = filterPositions(steps, filter)
 	}
 
 	if len(steps) == 0 {

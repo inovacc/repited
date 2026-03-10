@@ -1116,6 +1116,62 @@ func InstallGlobal(binaryPath string) error {
 	return nil
 }
 
+// InstallProject writes the MCP server config to a project-level .mcp.json file.
+func InstallProject(binaryPath, projectDir string) error {
+	configPath := filepath.Join(projectDir, ".mcp.json")
+
+	// Read existing config
+	config := make(map[string]json.RawMessage)
+
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &config); err != nil {
+			return fmt.Errorf("parsing %s: %w", configPath, err)
+		}
+	}
+
+	// Get or create mcpServers
+	mcpServers := make(map[string]json.RawMessage)
+
+	if raw, ok := config["mcpServers"]; ok {
+		if err := json.Unmarshal(raw, &mcpServers); err != nil {
+			return fmt.Errorf("parsing mcpServers: %w", err)
+		}
+	}
+
+	// Add repited server
+	serverConfig := MCPServerConfig{
+		Command: binaryPath,
+		Args:    []string{"mcp", "serve"},
+	}
+
+	serverJSON, err := json.Marshal(serverConfig)
+	if err != nil {
+		return fmt.Errorf("marshaling server config: %w", err)
+	}
+
+	mcpServers["repited"] = serverJSON
+
+	// Write back
+	serversJSON, err := json.Marshal(mcpServers)
+	if err != nil {
+		return fmt.Errorf("marshaling mcpServers: %w", err)
+	}
+
+	config["mcpServers"] = serversJSON
+
+	output, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, output, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", configPath, err)
+	}
+
+	return nil
+}
+
 // UninstallGlobal removes the MCP server config from Claude Code's global settings.
 func UninstallGlobal() error {
 	home, err := os.UserHomeDir()
