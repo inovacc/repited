@@ -180,12 +180,21 @@ func readScripts(dir string) ([]Script, error) {
 }
 
 func extractCommands(path string) ([]string, error) {
-	// Only parse shell scripts (.sh, .bash) and extensionless files
 	ext := strings.ToLower(filepath.Ext(path))
-	if ext != "" && ext != ".sh" && ext != ".bash" {
+
+	switch ext {
+	case "", ".sh", ".bash":
+		return extractShellCommands(path)
+	case ".ps1":
+		return extractPowerShellCommands(path)
+	case ".py":
+		return extractPythonCommands(path)
+	default:
 		return nil, nil
 	}
+}
 
+func extractShellCommands(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -225,6 +234,215 @@ func extractCommands(path string) ([]string, error) {
 	}
 
 	return commands, sc.Err()
+}
+
+// extractPowerShellCommands parses a .ps1 file and extracts tool commands.
+func extractPowerShellCommands(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := preprocessPowerShell(string(data))
+
+	var commands []string
+
+	for _, line := range lines {
+		statements := splitStatements(line)
+		for _, stmt := range statements {
+			tool := extractPowerShellTool(stmt)
+			if tool != "" {
+				commands = append(commands, tool)
+			}
+		}
+	}
+
+	return commands, nil
+}
+
+// preprocessPowerShell handles PowerShell-specific syntax: removes comments
+// (single-line # and multi-line <# ... #>), joins backtick-continued lines,
+// and returns cleaned lines ready for command extraction.
+func preprocessPowerShell(content string) []string {
+	// Remove multi-line block comments <# ... #>
+	for {
+		start := strings.Index(content, "<#")
+		if start == -1 {
+			break
+		}
+
+		end := strings.Index(content[start+2:], "#>")
+		if end == -1 {
+			// Unterminated block comment — remove the rest
+			content = content[:start]
+
+			break
+		}
+
+		content = content[:start] + content[start+2+end+2:]
+	}
+
+	rawLines := strings.Split(content, "\n")
+
+	var lines []string
+
+	var continued string
+
+	for _, raw := range rawLines {
+		line := strings.TrimSpace(raw)
+
+		// Skip empty lines and single-line comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Handle backtick line continuation
+		if trimmed, found := strings.CutSuffix(line, "`"); found {
+			continued += trimmed + " "
+
+			continue
+		}
+
+		if continued != "" {
+			line = continued + line
+			continued = ""
+		}
+
+		// Handle invocation operator before code fragment check,
+		// since & at the start would be flagged by isCodeFragment.
+		line = stripInvocationOperator(line)
+		if line == "" {
+			continue
+		}
+
+		// Skip lines that look like code rather than commands
+		if isCodeFragment(line) {
+			continue
+		}
+
+		// Skip PowerShell control flow
+		if isPowerShellSyntax(line) {
+			continue
+		}
+
+		lines = append(lines, line)
+	}
+
+	return lines
+}
+
+// isPowerShellSyntax returns true for PowerShell control flow keywords.
+func isPowerShellSyntax(line string) bool {
+	keywords := []string{
+		"if ", "if(", "else", "elseif ", "elseif(",
+		"foreach ", "foreach(", "for ", "for(",
+		"while ", "while(", "do ", "do{",
+		"switch ", "switch(",
+		"try", "catch", "finally",
+		"param(", "param (",
+		"begin", "process", "end",
+		"}", "{",
+	}
+
+	lower := strings.ToLower(line)
+	for _, kw := range keywords {
+		if lower == kw || strings.HasPrefix(lower, kw) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// PowerShell cmdlet builtins to skip (common Verb-Noun patterns).
+var psCmdletPrefixes = []string{
+	"write-", "get-", "set-", "new-", "remove-", "add-", "clear-",
+	"invoke-", "start-", "stop-", "test-", "out-", "select-",
+	"where-", "sort-", "group-", "measure-", "format-", "export-",
+	"import-", "convertto-", "convertfrom-", "update-", "enable-",
+	"disable-", "register-", "unregister-", "copy-", "move-",
+	"rename-", "read-", "send-", "receive-", "wait-",
+}
+
+// stripInvocationOperator removes the PowerShell & invocation operator prefix
+// and unquotes the command name if quoted (e.g., & "docker" ps -> docker ps).
+func stripInvocationOperator(line string) string {
+	if !strings.HasPrefix(line, "&") {
+		return line
+	}
+
+	line = strings.TrimSpace(line[1:])
+
+	// If the first token is quoted, unquote just that token
+	if len(line) > 0 && (line[0] == '"' || line[0] == '\'') {
+		quote := line[0]
+		end := strings.IndexByte(line[1:], quote)
+
+		if end != -1 {
+			unquoted := line[1 : end+1]
+			rest := line[end+2:]
+			line = unquoted + rest
+		}
+	}
+
+	return strings.TrimSpace(line)
+}
+
+// extractPowerShellTool extracts a tool name from a PowerShell statement.
+func extractPowerShellTool(stmt string) string {
+	stmt = strings.TrimSpace(stmt)
+	if stmt == "" {
+		return ""
+	}
+
+	// Handle invocation operator (may still appear inside split statements)
+	stmt = stripInvocationOperator(stmt)
+
+	// Strip leading $variable assignments like $var = command
+	if strings.HasPrefix(stmt, "$") {
+		eqIdx := strings.Index(stmt, "=")
+		if eqIdx != -1 {
+			stmt = strings.TrimSpace(stmt[eqIdx+1:])
+		} else {
+			// Bare $variable reference — skip
+			return ""
+		}
+	}
+
+	// Skip lines that start with $ (variable references remaining after strip)
+	if strings.HasPrefix(stmt, "$") {
+		return ""
+	}
+
+	fields := strings.Fields(stmt)
+	if len(fields) == 0 {
+		return ""
+	}
+
+	cmd := fields[0]
+
+	// Skip PowerShell cmdlets (Verb-Noun pattern)
+	cmdLower := strings.ToLower(cmd)
+	for _, prefix := range psCmdletPrefixes {
+		if strings.HasPrefix(cmdLower, prefix) {
+			return ""
+		}
+	}
+
+	// Skip PowerShell builtins/aliases that don't map to real tools
+	psSkip := map[string]bool{
+		"cd": true, "echo": true, "exit": true, "return": true,
+		"throw": true, "cls": true, "pushd": true, "popd": true,
+		"mkdir": true, "rmdir": true, "del": true, "copy": true,
+		"move": true, "type": true, "set-location": true,
+	}
+
+	if psSkip[cmdLower] {
+		return ""
+	}
+
+	// Delegate to the shared tool extraction logic
+	return extractTool(stmt)
 }
 
 // isShellSyntax returns true for shell control flow keywords.
@@ -406,6 +624,261 @@ func isValidCommand(cmd string) bool {
 	}
 
 	return true
+}
+
+// extractPythonCommands parses a .py file and extracts tool commands from
+// subprocess calls, os.system/os.popen calls, and Jupyter-style !commands.
+func extractPythonCommands(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := preprocessPython(string(data))
+
+	var commands []string
+
+	for _, line := range lines {
+		cmds := extractPythonLine(line)
+		commands = append(commands, cmds...)
+	}
+
+	return commands, nil
+}
+
+// preprocessPython removes comments, docstrings, and Python syntax lines,
+// returning only lines that may contain shell command invocations.
+func preprocessPython(content string) []string {
+	rawLines := strings.Split(content, "\n")
+
+	var lines []string
+
+	inDocstring := false
+	docstringDelim := ""
+
+	for _, raw := range rawLines {
+		line := strings.TrimSpace(raw)
+
+		// Handle docstring blocks (""" or ''')
+		if inDocstring {
+			if strings.Contains(line, docstringDelim) {
+				inDocstring = false
+			}
+
+			continue
+		}
+
+		// Check for docstring start
+		for _, delim := range []string{`"""`, `'''`} {
+			if strings.Contains(line, delim) {
+				// Count occurrences — if odd, we're entering a docstring
+				count := strings.Count(line, delim)
+				if count == 1 {
+					inDocstring = true
+					docstringDelim = delim
+
+					// If this line also has content before the docstring, skip the whole line
+					break
+				}
+				// count >= 2 means open+close on same line — not a block docstring
+			}
+		}
+
+		if inDocstring {
+			continue
+		}
+
+		// Skip empty lines and single-line comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Skip Python keywords/syntax lines
+		if isPythonSyntax(line) {
+			continue
+		}
+
+		lines = append(lines, line)
+	}
+
+	return lines
+}
+
+// isPythonSyntax returns true for lines that are Python control flow or declarations.
+func isPythonSyntax(line string) bool {
+	keywords := []string{
+		"import ", "from ", "def ", "class ", "return ", "return\t",
+		"if ", "if(", "elif ", "elif(", "else:", "else :",
+		"for ", "for(", "while ", "while(",
+		"try:", "try :", "except ", "except:", "finally:", "finally :",
+		"with ", "raise ", "yield ", "yield(",
+		"pass", "break", "continue",
+		"assert ", "assert(",
+		"print(", "print ",
+		"@",
+	}
+
+	for _, kw := range keywords {
+		if line == kw || strings.HasPrefix(line, kw) {
+			return true
+		}
+	}
+
+	// Bare "return" on its own
+	if line == "return" || line == "pass" || line == "break" || line == "continue" {
+		return true
+	}
+
+	return false
+}
+
+// extractPythonLine extracts tool commands from a single preprocessed Python line.
+func extractPythonLine(line string) []string {
+	var commands []string
+
+	// Handle Jupyter-style !command
+	if strings.HasPrefix(line, "!") {
+		cmd := strings.TrimSpace(line[1:])
+		if cmd != "" {
+			tool := extractTool(cmd)
+			if tool != "" {
+				commands = append(commands, tool)
+			}
+		}
+
+		return commands
+	}
+
+	// Handle subprocess.run/call/check_call/check_output/Popen with list args
+	// e.g., subprocess.run(["git", "push"]) or subprocess.call(["kubectl", "apply", "-f"])
+	subprocessPrefixes := []string{
+		"subprocess.run(", "subprocess.call(", "subprocess.check_call(",
+		"subprocess.check_output(", "subprocess.Popen(",
+	}
+
+	for _, prefix := range subprocessPrefixes {
+		_, after, ok := strings.Cut(line, prefix)
+		if !ok {
+			continue
+		}
+
+		cmd := extractCommandFromSubprocess(after)
+
+		if cmd != "" {
+			tool := extractTool(cmd)
+			if tool != "" {
+				commands = append(commands, tool)
+			}
+		}
+	}
+
+	if len(commands) > 0 {
+		return commands
+	}
+
+	// Handle os.system("command") and os.popen("command")
+	osPrefixes := []string{"os.system(", "os.popen("}
+
+	for _, prefix := range osPrefixes {
+		_, after, ok := strings.Cut(line, prefix)
+		if !ok {
+			continue
+		}
+
+		cmd := extractQuotedString(after)
+
+		if cmd != "" {
+			// The quoted string is a shell command — split and extract
+			stmts := splitStatements(cmd)
+			for _, stmt := range stmts {
+				tool := extractTool(stmt)
+				if tool != "" {
+					commands = append(commands, tool)
+				}
+			}
+		}
+	}
+
+	return commands
+}
+
+// extractCommandFromSubprocess extracts a command string from subprocess-style
+// list arguments like ["git", "push", "--force"] or a string argument like "git push".
+func extractCommandFromSubprocess(after string) string {
+	after = strings.TrimSpace(after)
+
+	// List form: ["git", "push", "--force"]
+	if strings.HasPrefix(after, "[") {
+		end := strings.Index(after, "]")
+		if end == -1 {
+			return ""
+		}
+
+		listContent := after[1:end]
+
+		return parseStringList(listContent)
+	}
+
+	// String form: "git push --force" or 'git push'
+	return extractQuotedString(after)
+}
+
+// parseStringList parses a Python list of string literals like "git", "push", "--force"
+// and returns them joined as a command string.
+func parseStringList(content string) string {
+	var parts []string
+
+	for part := range strings.SplitSeq(content, ",") {
+		part = strings.TrimSpace(part)
+		// Strip quotes
+		if len(part) >= 2 {
+			if (part[0] == '"' && part[len(part)-1] == '"') ||
+				(part[0] == '\'' && part[len(part)-1] == '\'') {
+				part = part[1 : len(part)-1]
+			}
+		}
+
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// extractQuotedString extracts the content of the first quoted string (single or double)
+// from the given text.
+func extractQuotedString(text string) string {
+	text = strings.TrimSpace(text)
+
+	if len(text) == 0 {
+		return ""
+	}
+
+	// Skip f-strings — they contain interpolation and are unreliable
+	if strings.HasPrefix(text, "f\"") || strings.HasPrefix(text, "f'") {
+		return ""
+	}
+
+	var quote byte
+
+	switch text[0] {
+	case '"':
+		quote = '"'
+	case '\'':
+		quote = '\''
+	}
+
+	if quote == 0 {
+		return ""
+	}
+
+	end := strings.IndexByte(text[1:], quote)
+	if end == -1 {
+		return ""
+	}
+
+	return text[1 : end+1]
 }
 
 func isDir(path string) bool {

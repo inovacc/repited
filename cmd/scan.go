@@ -1,12 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/inovacc/repited/internal/cmdlog"
 	"github.com/inovacc/repited/internal/scanner"
@@ -33,6 +37,7 @@ func init() {
 	scanCmd.Flags().StringP("db", "", defaultDBPath(), "SQLite database path")
 	scanCmd.Flags().StringSlice("exclude", nil, "Additional directory names to skip during scan")
 	scanCmd.Flags().Bool("json", false, "output results as JSON")
+	scanCmd.Flags().BoolP("watch", "w", false, "watch .scripts directories and re-scan on changes")
 }
 
 func defaultDBPath() string {
@@ -51,42 +56,60 @@ func runScan(cmd *cobra.Command, args []string) error {
 	dbPath, _ := cmd.Flags().GetString("db")
 	exclude, _ := cmd.Flags().GetStringSlice("exclude")
 	jsonOutput, _ := cmd.Flags().GetBool("json")
+	watch, _ := cmd.Flags().GetBool("watch")
 
-	_, _ = fmt.Fprintf(os.Stdout, "Scanning %s (depth=%d)...\n", dir, depth)
-
-	result, err := scanner.Scan(dir, scanner.ScanOptions{
+	opts := scanner.ScanOptions{
 		MaxDepth: depth,
 		Exclude:  exclude,
-	})
+	}
+
+	result, err := executeScan(dir, depth, top, showProjects, dbPath, jsonOutput, opts)
 	if err != nil {
-		return fmt.Errorf("scan failed: %w", err)
+		return err
+	}
+
+	if !watch || len(result.Projects) == 0 {
+		return nil
+	}
+
+	return runWatchLoop(cmd.Context(), dir, depth, top, showProjects, dbPath, jsonOutput, opts, result)
+}
+
+// executeScan performs a single scan and prints the results.
+func executeScan(dir string, depth, top int, showProjects bool, dbPath string, jsonOutput bool, opts scanner.ScanOptions) (*scanner.ScanResult, error) {
+	_, _ = fmt.Fprintf(os.Stdout, "Scanning %s (depth=%d)...\n", dir, depth)
+
+	result, err := scanner.Scan(dir, opts)
+	if err != nil {
+		return nil, fmt.Errorf("scan failed: %w", err)
 	}
 
 	if len(result.Projects) == 0 {
 		_, _ = fmt.Fprintln(os.Stdout, "No projects with .scripts found.")
-		return nil
+
+		return result, nil
 	}
 
 	// Ensure database directory exists
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return fmt.Errorf("creating db directory: %w", err)
+		return nil, fmt.Errorf("creating db directory: %w", err)
 	}
 
 	// Save to SQLite
 	db, err := store.Open(dbPath)
 	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
+		return nil, fmt.Errorf("opening database: %w", err)
 	}
 
 	defer func() { _ = db.Close() }()
 
 	scanID, err := db.SaveScan(dir, result)
 	if err != nil {
-		return fmt.Errorf("saving scan: %w", err)
+		return nil, fmt.Errorf("saving scan: %w", err)
 	}
 
 	if jsonOutput {
-		return printScanJSON(result, scanID, dbPath)
+		return result, printScanJSON(result, scanID, dbPath)
 	}
 
 	_, _ = fmt.Fprintf(os.Stdout, "Found %d project(s) with .scripts — saved to %s (scan #%d)\n\n", len(result.Projects), dbPath, scanID)
@@ -103,6 +126,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	for _, p := range result.Projects {
 		totalScripts += len(p.Scripts)
+
 		for _, s := range p.Scripts {
 			totalCommands += len(s.Commands)
 		}
@@ -112,19 +136,84 @@ func runScan(cmd *cobra.Command, args []string) error {
 		len(result.Projects), totalScripts, totalCommands, len(result.ToolCounts))
 
 	// Log this invocation
-	log := cmdlog.New("scan", dir)
-	log.Add(cmdlog.Entry{
+	lg := cmdlog.New("scan", dir)
+	lg.Add(cmdlog.Entry{
 		Cmd:    "repited",
 		Args:   []string{"scan", dir, "--depth", fmt.Sprintf("%d", depth), "--top", fmt.Sprintf("%d", top)},
 		Dir:    dir,
 		Status: "ok",
 	})
 
-	if logPath, err := log.Save(); err == nil {
+	if logPath, err := lg.Save(); err == nil {
 		_, _ = fmt.Fprintf(os.Stdout, "Log: %s\n", logPath)
 	}
 
+	return result, nil
+}
+
+// runWatchLoop sets up filesystem watchers on .scripts directories and re-scans on changes.
+func runWatchLoop(parent context.Context, dir string, depth, top int, showProjects bool, dbPath string, jsonOutput bool, opts scanner.ScanOptions, result *scanner.ScanResult) error {
+	ctx, cancel := signal.NotifyContext(parent, os.Interrupt)
+	defer cancel()
+
+	scriptsDirs := collectScriptsDirs(result)
+	scanCount := 1
+
+	// Create watcher first with a nil callback; set the real callback after
+	// so the closure can reference w itself for adding new directories.
+	w, err := scanner.NewWatcher(scriptsDirs, nil)
+	if err != nil {
+		return fmt.Errorf("creating watcher: %w", err)
+	}
+
+	defer func() { _ = w.Close() }()
+
+	w.SetOnChange(func() {
+		scanCount++
+		_, _ = fmt.Fprintf(os.Stdout, "\n%s\n", strings.Repeat("-", 60))
+		_, _ = fmt.Fprintf(os.Stdout, "[%s] Re-scanning (#%d)...\n", time.Now().Format(time.RFC3339), scanCount)
+
+		newResult, scanErr := executeScan(dir, depth, top, showProjects, dbPath, jsonOutput, opts)
+		if scanErr != nil {
+			slog.Error("re-scan failed", "err", scanErr)
+
+			return
+		}
+
+		if len(newResult.Projects) == 0 {
+			return
+		}
+
+		// Watch any new .scripts directories that appeared
+		for _, d := range collectScriptsDirs(newResult) {
+			if addErr := w.AddDir(d); addErr != nil {
+				slog.Error("failed to watch new directory", "dir", d, "err", addErr)
+			}
+		}
+	})
+
+	slog.Info("watch mode active", "dirs", len(scriptsDirs))
+	_, _ = fmt.Fprintf(os.Stdout, "\nWatching %d .scripts director(ies) for changes. Press Ctrl+C to stop.\n", len(scriptsDirs))
+
+	if startErr := w.Start(ctx); startErr != nil && ctx.Err() != nil {
+		_, _ = fmt.Fprintf(os.Stdout, "\nStopped watching. Total scans: %d\n", scanCount)
+
+		return nil
+	}
+
 	return nil
+}
+
+// collectScriptsDirs extracts the .scripts directory paths from a scan result.
+func collectScriptsDirs(result *scanner.ScanResult) []string {
+	dirs := make([]string, 0, len(result.Projects))
+
+	for _, p := range result.Projects {
+		scriptsDir := filepath.Join(p.Path, ".scripts")
+		dirs = append(dirs, scriptsDir)
+	}
+
+	return dirs
 }
 
 type scanJSONOutput struct {

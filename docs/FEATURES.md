@@ -62,6 +62,27 @@
 - **Status:** Completed
 - **Description:** `--exclude` flag and DefaultExcludes (node_modules, vendor, etc.) for scanner
 
+### v1.0.0 Release
+- **Status:** Completed
+- **Published:** 2026-03-10
+- **Description:** First stable release via goreleaser with 6 platform binaries
+- **Includes:** All features above, CI/CD pipeline, 80%+ test coverage
+
+### Pattern Editing CLI
+- **Status:** Completed
+- **Description:** Enable, disable, and edit pattern rules from the command line
+- **Includes:** `patterns edit`, `patterns enable`, `patterns disable` subcommands
+
+### Custom User-Defined Patterns
+- **Status:** Completed
+- **Description:** Create and delete custom workflow patterns with source tags
+- **Includes:** `patterns create`, `patterns delete` subcommands, source tags in `patterns list`
+
+### PowerShell Script Parsing
+- **Status:** Completed
+- **Description:** Parse `.ps1` scripts alongside `.sh`/`.bash`, with cmdlet filtering
+- **Includes:** PowerShell cmdlet recognition, noise filtering for PS-specific syntax
+
 ## Proposed Features
 
 ### Interactive TUI

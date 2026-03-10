@@ -2,7 +2,7 @@
 
 ## v0.1.0 - Foundation
 - **Status:** Complete
-- **Test Coverage:** scanner 92.4%, store 76.1%, cmdlog 92.5%
+- **Test Coverage:** scanner 92.4%, store 85.4%, cmdlog 92.5%
 - **Goals:**
   - [x] Project scaffolding
   - [x] Directory scanner (find .git + .scripts)
@@ -34,8 +34,8 @@
   - [x] Git pre-commit hook (lint:fix + vet + build)
 
 ## v1.0.0 - First Stable Release
-- **Target:** TBD
-- **Status:** In Progress
+- **Published:** 2026-03-10
+- **Status:** Complete
 - **Goals:**
   - [x] Unit tests for 7 packages (~81% overall)
   - [x] Integration tests for MCP server (49.9% — 13 tests via in-memory transports)
@@ -46,4 +46,13 @@
   - [x] JSON output for scan/stats commands
   - [x] --filter flag for stats/relations
   - [x] MCP project-level install (--project flag)
-  - [ ] goreleaser release (tag v1.0.0)
+  - [x] goreleaser release (v1.0.0 — 6 platform binaries published)
+
+## v1.1.0 - Feature Expansion
+- **Status:** In Progress
+- **Goals:**
+  - [x] Pattern editing CLI (enable/disable/edit commands)
+  - [x] Custom user-defined patterns (create/delete + source tags in list)
+  - [x] PowerShell script parsing (.ps1 with cmdlet filtering)
+  - [ ] Python script parsing
+  - [ ] Watch mode (rescan on changes)

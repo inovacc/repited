@@ -11,18 +11,15 @@
 ## Items
 
 ### P1 - This Sprint
-- **v1.0.0 release with goreleaser** — Small — Infrastructure — Tag and release
+_No P1 items._
 
 ### P2 - This Quarter
-- **Pattern editing CLI** — Medium — Feature — Enable/disable rules, modify patterns
-- **Custom user-defined patterns** — Medium — Feature — Let users create their own workflow patterns
+_No P2 items._
 
 ### P3 - Future
 - **Interactive TUI mode** — Large — Feature
 - **Watch mode (rescan on changes)** — Medium — Feature
-- **PowerShell script parsing** — Medium — Feature
 - **Python script parsing** — Medium — Feature
-- **MCP project-level install** — Medium — Feature — Per-project .mcp.json config
 - **Pattern sharing** — Large — Feature — Export/import patterns between teams
 
 ## Resolved
@@ -37,11 +34,11 @@
 | Pre-commit hook | Implemented in v0.3.0 | 2026-03-09 |
 | Tool dependency graph | Implemented as relations command | 2026-03-09 |
 | Unit tests for scanner | 92.4% coverage | 2026-03-09 |
-| Unit tests for store | 76.1% coverage | 2026-03-09 |
+| Unit tests for store | 85.4% coverage | 2026-03-09 |
 | Unit tests for flow | 88.2% coverage | 2026-03-09 |
 | Unit tests for patterns | 79.3% coverage | 2026-03-09 |
 | Unit tests for cmdlog | 92.5% coverage | 2026-03-09 |
-| Unit tests for deps | 55.0% coverage | 2026-03-09 |
+| Unit tests for deps | 92.5% coverage | 2026-03-09 |
 | TODO in cmd/aicontext.go | Replaced with repited-specific content | 2026-03-09 |
 | GitHub remote setup | Published to github.com/inovacc/repited | 2026-03-09 |
 | CI/CD pipeline | GitHub Actions workflows active | 2026-03-09 |
@@ -51,3 +48,7 @@
 | JSON output format for scan/stats | Added --json flag | 2026-03-09 |
 | Filter by tool name or pattern | Added --filter flag to stats/relations | 2026-03-09 |
 | MCP project-level install | Added --project flag for .mcp.json | 2026-03-09 |
+| v1.0.0 release with goreleaser | Released — 6 platform binaries | 2026-03-10 |
+| Pattern editing CLI | Implemented enable/disable/edit commands | 2026-03-10 |
+| Custom user-defined patterns | Implemented create/delete + source tags in list | 2026-03-10 |
+| PowerShell script parsing | Added .ps1 parsing with cmdlet filtering | 2026-03-10 |

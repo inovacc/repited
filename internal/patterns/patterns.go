@@ -141,6 +141,101 @@ func (ps *PatternStore) LoadRules() ([]Rule, error) {
 	})
 }
 
+// UserPatternsFile returns the path to the user-patterns.json file.
+func (ps *PatternStore) UserPatternsFile() string {
+	return filepath.Join(ps.dir, "user-patterns.json")
+}
+
+// LoadUserPatterns reads user-defined patterns from the user-patterns.json file.
+func (ps *PatternStore) LoadUserPatterns() ([]Pattern, error) {
+	path := ps.UserPatternsFile()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("reading user patterns: %w", err)
+	}
+
+	var userPatterns []Pattern
+
+	if err := json.Unmarshal(data, &userPatterns); err != nil {
+		return nil, fmt.Errorf("parsing user patterns: %w", err)
+	}
+
+	return userPatterns, nil
+}
+
+// SaveUserPattern adds a new user-defined pattern and persists to disk.
+func (ps *PatternStore) SaveUserPattern(p Pattern) error {
+	existing, err := ps.LoadUserPatterns()
+	if err != nil {
+		return fmt.Errorf("loading existing user patterns: %w", err)
+	}
+
+	// Check for duplicate name
+	for _, ep := range existing {
+		if ep.Name == p.Name {
+			return fmt.Errorf("user pattern %q already exists", p.Name)
+		}
+	}
+
+	existing = append(existing, p)
+
+	if err := os.MkdirAll(ps.dir, 0o755); err != nil {
+		return fmt.Errorf("creating patterns dir: %w", err)
+	}
+
+	if err := ps.writeJSON("user-patterns.json", existing); err != nil {
+		return fmt.Errorf("saving user patterns: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteUserPattern removes a user-defined pattern by name.
+func (ps *PatternStore) DeleteUserPattern(name string) error {
+	existing, err := ps.LoadUserPatterns()
+	if err != nil {
+		return fmt.Errorf("loading user patterns: %w", err)
+	}
+
+	found := false
+	filtered := make([]Pattern, 0, len(existing))
+
+	for _, p := range existing {
+		if p.Name == name {
+			found = true
+			continue
+		}
+
+		filtered = append(filtered, p)
+	}
+
+	if !found {
+		return fmt.Errorf("user pattern %q not found", name)
+	}
+
+	if err := ps.writeJSON("user-patterns.json", filtered); err != nil {
+		return fmt.Errorf("saving user patterns: %w", err)
+	}
+
+	return nil
+}
+
+// IsBuiltinPattern checks whether a pattern name belongs to a builtin pattern.
+func IsBuiltinPattern(name string) bool {
+	for _, p := range BuiltinPatterns() {
+		if p.Name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
 // SuggestFlows returns pattern suggestions for a given project directory.
 func (ps *PatternStore) SuggestFlows(projectDir string) ([]Pattern, error) {
 	patterns, err := ps.LoadPatterns()
@@ -281,7 +376,7 @@ func detectGuardPatterns(seqs []store.ToolRelation) []Pattern {
 			// Check if this is a natural prerequisite
 			if isGuardPair(s.From, s.To) {
 				patterns = append(patterns, Pattern{
-					ID:          fmt.Sprintf("guard-%s-%s", sanitizeID(s.From), sanitizeID(s.To)),
+					ID:          fmt.Sprintf("guard-%s-%s", SanitizeID(s.From), SanitizeID(s.To)),
 					Name:        fmt.Sprintf("%s guards %s", s.From, s.To),
 					Description: fmt.Sprintf("'%s' should run before '%s' (%d occurrences)", s.From, s.To, s.Count),
 					Category:    "guard",
@@ -308,7 +403,7 @@ func detectTeardownPatterns(positions []store.WorkflowStep) []Pattern {
 	for _, ws := range positions {
 		if ws.Position == "last" && ws.Count >= 10 {
 			patterns = append(patterns, Pattern{
-				ID:          fmt.Sprintf("teardown-%s", sanitizeID(ws.Tool)),
+				ID:          fmt.Sprintf("teardown-%s", SanitizeID(ws.Tool)),
 				Name:        fmt.Sprintf("%s (script closer)", ws.Tool),
 				Description: fmt.Sprintf("'%s' commonly ends scripts (%d times)", ws.Tool, ws.Count),
 				Category:    "flow",
@@ -345,7 +440,7 @@ func detectClusterPatterns(clusters []store.ToolCluster) []Pattern {
 
 		if total >= 20 {
 			patterns = append(patterns, Pattern{
-				ID:          fmt.Sprintf("cluster-%s", sanitizeID(cl.Category)),
+				ID:          fmt.Sprintf("cluster-%s", SanitizeID(cl.Category)),
 				Name:        fmt.Sprintf("%s toolkit", cl.Category),
 				Description: fmt.Sprintf("Frequently co-occurring tools in %s (%d total uses)", cl.Category, total),
 				Category:    "setup",
@@ -682,6 +777,242 @@ func BuiltinRules() []Rule {
 	}
 }
 
+// SetRuleEnabled finds a rule by name across all rule files and sets its Enabled field.
+func (ps *PatternStore) SetRuleEnabled(ruleName string, enabled bool) error {
+	entries, err := os.ReadDir(ps.dir)
+	if err != nil {
+		return fmt.Errorf("reading patterns dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || !strings.Contains(entry.Name(), "rules") {
+			continue
+		}
+
+		filePath := filepath.Join(ps.dir, entry.Name())
+
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+
+		var rules []Rule
+
+		if err := json.Unmarshal(data, &rules); err != nil {
+			continue
+		}
+
+		found := false
+
+		for i := range rules {
+			if rules[i].Name == ruleName {
+				rules[i].Enabled = enabled
+				found = true
+
+				break
+			}
+		}
+
+		if found {
+			return ps.writeJSON(entry.Name(), rules)
+		}
+	}
+
+	return fmt.Errorf("rule %q not found", ruleName)
+}
+
+// EditPattern finds a pattern by name and modifies its category and/or tools (step tools).
+func (ps *PatternStore) EditPattern(patternName, category string, tools []string) error {
+	entries, err := os.ReadDir(ps.dir)
+	if err != nil {
+		return fmt.Errorf("reading patterns dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || strings.Contains(entry.Name(), "rules") {
+			continue
+		}
+
+		filePath := filepath.Join(ps.dir, entry.Name())
+
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+
+		var pats []Pattern
+
+		if err := json.Unmarshal(data, &pats); err != nil {
+			continue
+		}
+
+		found := false
+
+		for i := range pats {
+			if pats[i].Name == patternName {
+				if category != "" {
+					pats[i].Category = category
+				}
+
+				if len(tools) > 0 {
+					steps := make([]Step, len(tools))
+					for j, t := range tools {
+						steps[j] = Step{Tool: t, Order: j + 1, OnFail: "stop"}
+					}
+
+					pats[i].Steps = steps
+				}
+
+				found = true
+
+				break
+			}
+		}
+
+		if found {
+			return ps.writeJSON(entry.Name(), pats)
+		}
+	}
+
+	return fmt.Errorf("pattern %q not found", patternName)
+}
+
+// ExportData is the wrapper for exported patterns with metadata.
+type ExportData struct {
+	Version    string    `json:"version"`
+	ExportedAt string    `json:"exported_at"`
+	Patterns   []Pattern `json:"patterns"`
+}
+
+// ExportPatterns collects patterns based on the given flags and returns an ExportData.
+func (ps *PatternStore) ExportPatterns(includeBuiltin, includeUser, includeDetected bool) (*ExportData, error) {
+	var result []Pattern
+
+	if includeBuiltin {
+		builtins := BuiltinPatterns()
+		result = append(result, builtins...)
+	}
+
+	if includeUser {
+		userPats, err := ps.LoadUserPatterns()
+		if err != nil {
+			return nil, fmt.Errorf("loading user patterns: %w", err)
+		}
+
+		result = append(result, userPats...)
+	}
+
+	if includeDetected {
+		entries, err := os.ReadDir(ps.dir)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("reading patterns dir: %w", err)
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasPrefix(entry.Name(), "detected-") || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+
+			data, err := os.ReadFile(filepath.Join(ps.dir, entry.Name()))
+			if err != nil {
+				continue
+			}
+
+			var pats []Pattern
+
+			if err := json.Unmarshal(data, &pats); err != nil {
+				continue
+			}
+
+			result = append(result, pats...)
+		}
+	}
+
+	return &ExportData{
+		Version:    "1",
+		ExportedAt: time.Now().UTC().Format(time.RFC3339),
+		Patterns:   result,
+	}, nil
+}
+
+// ImportPatterns imports patterns from ExportData into user-patterns.json.
+// Mode controls conflict resolution: "skip" (default), "merge", or "overwrite".
+// Returns counts of imported, skipped, and merged/overwritten patterns.
+func (ps *PatternStore) ImportPatterns(data *ExportData, mode string) (imported, skipped, merged int, err error) {
+	existing, err := ps.LoadUserPatterns()
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("loading user patterns: %w", err)
+	}
+
+	existingMap := make(map[string]int, len(existing))
+	for i, p := range existing {
+		existingMap[p.Name] = i
+	}
+
+	for _, p := range data.Patterns {
+		idx, exists := existingMap[p.Name]
+
+		if !exists {
+			// New pattern — always import
+			existing = append(existing, p)
+			existingMap[p.Name] = len(existing) - 1
+			imported++
+
+			continue
+		}
+
+		switch mode {
+		case "merge":
+			// Merge tools from imported pattern into existing one
+			existingTools := make(map[string]bool)
+			for _, s := range existing[idx].Steps {
+				existingTools[s.Tool] = true
+			}
+
+			nextOrder := len(existing[idx].Steps)
+
+			for _, s := range p.Steps {
+				if !existingTools[s.Tool] {
+					nextOrder++
+					s.Order = nextOrder
+					existing[idx].Steps = append(existing[idx].Steps, s)
+					existingTools[s.Tool] = true
+				}
+			}
+
+			// Merge tags
+			existingTags := make(map[string]bool)
+			for _, t := range existing[idx].Tags {
+				existingTags[t] = true
+			}
+
+			for _, t := range p.Tags {
+				if !existingTags[t] {
+					existing[idx].Tags = append(existing[idx].Tags, t)
+				}
+			}
+
+			merged++
+		case "overwrite":
+			existing[idx] = p
+			merged++
+		default:
+			// "skip" — do nothing
+			skipped++
+		}
+	}
+
+	if err := os.MkdirAll(ps.dir, 0o755); err != nil {
+		return imported, skipped, merged, fmt.Errorf("creating patterns dir: %w", err)
+	}
+
+	if err := ps.writeJSON("user-patterns.json", existing); err != nil {
+		return imported, skipped, merged, fmt.Errorf("saving user patterns: %w", err)
+	}
+
+	return imported, skipped, merged, nil
+}
+
 // ── helpers ──
 
 func (ps *PatternStore) writeJSON(filename string, v any) error {
@@ -895,7 +1226,8 @@ func chainTags(chain []string) []string {
 	return result
 }
 
-func sanitizeID(s string) string {
+// SanitizeID converts a string into a safe ID by replacing spaces, slashes, and dots with hyphens.
+func SanitizeID(s string) string {
 	r := strings.NewReplacer(" ", "-", "/", "-", ".", "-")
 	return r.Replace(strings.ToLower(s))
 }

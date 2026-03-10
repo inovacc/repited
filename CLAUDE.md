@@ -47,6 +47,7 @@ Git pre-commit hook runs automatically:
 | `cmd/flow.go` | Build→test→lint→stage→commit pipeline |
 | `cmd/mcp.go` | MCP serve, install, uninstall |
 | `cmd/patterns.go` | Pattern init, detect, list, suggest, rules |
+| `cmd/patterns_edit.go` | Pattern enable/disable/edit commands |
 | `cmd/stats.go` | Query stored scan data |
 | `cmd/relations.go` | Command co-occurrence analysis |
 | `internal/scanner/scanner.go` | Directory walker + command extractor |
@@ -55,7 +56,7 @@ Git pre-commit hook runs automatically:
 | `internal/store/relations.go` | Sequences, co-occurrence, positions, clusters |
 | `internal/flow/flow.go` | Pipeline engine (Step, Result, Pipeline) |
 | `internal/cmdlog/cmdlog.go` | KSUID log files at AppData\Local\Repited\commands\ |
-| `internal/mcp/server.go` | MCP server with 5 tools + install/uninstall |
+| `internal/mcp/server.go` | MCP server with 7 tools (flow, scan, stats, relations, patterns, scout, next-steps) + install/uninstall |
 | `internal/patterns/patterns.go` | Pattern store, detection, builtin patterns & rules |
 
 ## MCP Server
@@ -78,7 +79,7 @@ Tools exposed:
 
 ## Conventions
 
-- Only parse `.sh` and `.bash` files (skip `.go`, `.py`, `.ps1`, `.js`)
+- Parse `.sh`, `.bash`, and `.ps1` files (skip `.go`, `.py`, `.js`)
 - Track multi-word commands: go, git, gh, docker, kubectl, task, terraform, npm, cargo, pip, omni
 - Skip shell builtins (cd, export, echo, etc.)
 - Skip code fragments (Go/Python/JS syntax)

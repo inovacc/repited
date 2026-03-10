@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/inovacc/repited/internal/cmdlog"
 	"github.com/inovacc/repited/internal/patterns"
@@ -65,6 +66,24 @@ var patternsSuggestCmd = &cobra.Command{
 	RunE:  runPatternsSuggest,
 }
 
+var patternsCreateCmd = &cobra.Command{
+	Use:   "create <name>",
+	Short: "Create a user-defined workflow pattern",
+	Long: `Create a custom workflow pattern with specified tools and category.
+
+Example:
+  repited patterns create "my-deploy" --tools "go build,go test,docker build" --category deploy --description "My deploy flow"`,
+	Args: cobra.ExactArgs(1),
+	RunE: runPatternsCreate,
+}
+
+var patternsDeleteCmd = &cobra.Command{
+	Use:   "delete <name>",
+	Short: "Delete a user-defined pattern (cannot delete builtins)",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runPatternsDelete,
+}
+
 var patternsRulesCmd = &cobra.Command{
 	Use:   "rules",
 	Short: "List all rules with their status",
@@ -78,6 +97,8 @@ func init() {
 	patternsCmd.AddCommand(patternsListCmd)
 	patternsCmd.AddCommand(patternsSuggestCmd)
 	patternsCmd.AddCommand(patternsRulesCmd)
+	patternsCmd.AddCommand(patternsCreateCmd)
+	patternsCmd.AddCommand(patternsDeleteCmd)
 
 	patternsDetectCmd.Flags().Int64P("scan", "s", 0, "scan ID (0 = latest)")
 	patternsDetectCmd.Flags().StringP("db", "", defaultDBPath(), "SQLite database path")
@@ -86,6 +107,12 @@ func init() {
 	patternsListCmd.Flags().StringP("category", "c", "", "filter by category (flow, guard, deploy, test, setup, refactor)")
 
 	patternsSuggestCmd.Flags().BoolP("json", "j", false, "output as JSON")
+
+	patternsCreateCmd.Flags().StringP("tools", "t", "", "comma-separated list of tools/commands (required)")
+	patternsCreateCmd.Flags().StringP("category", "c", "flow", "pattern category (flow, guard, deploy, test, setup, refactor)")
+	patternsCreateCmd.Flags().StringP("description", "d", "", "pattern description")
+
+	_ = patternsCreateCmd.MarkFlagRequired("tools")
 }
 
 func runPatternsDetect(cmd *cobra.Command, _ []string) error {
@@ -208,7 +235,8 @@ func runPatternsList(cmd *cobra.Command, _ []string) error {
 				conf = fmt.Sprintf(" (%.0f%%)", p.Confidence*100)
 			}
 
-			_, _ = fmt.Fprintf(os.Stdout, "    %-45s %s%s\n", p.Name, p.Source, conf)
+			sourceTag := sourceLabel(p.Source)
+			_, _ = fmt.Fprintf(os.Stdout, "    %-45s %s %s%s\n", p.Name, sourceTag, p.Source, conf)
 		}
 
 		_, _ = fmt.Fprintln(os.Stdout)
@@ -265,6 +293,69 @@ func runPatternsSuggest(cmd *cobra.Command, args []string) error {
 		_, _ = fmt.Fprintf(os.Stdout, "     Steps: %s\n", strings.Join(stepNames, " → "))
 		_, _ = fmt.Fprintln(os.Stdout)
 	}
+
+	return nil
+}
+
+func runPatternsCreate(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	tools, _ := cmd.Flags().GetString("tools")
+	category, _ := cmd.Flags().GetString("category")
+	description, _ := cmd.Flags().GetString("description")
+
+	toolList := strings.Split(tools, ",")
+	steps := make([]patterns.Step, len(toolList))
+
+	for i, t := range toolList {
+		steps[i] = patterns.Step{
+			Tool:   strings.TrimSpace(t),
+			Order:  i + 1,
+			OnFail: "stop",
+		}
+	}
+
+	if description == "" {
+		description = fmt.Sprintf("User-defined pattern: %s", name)
+	}
+
+	p := patterns.Pattern{
+		ID:          fmt.Sprintf("user-%s", patterns.SanitizeID(name)),
+		Name:        name,
+		Description: description,
+		Category:    category,
+		Steps:       steps,
+		Confidence:  1.0,
+		Occurrences: 0,
+		Source:      "user-defined",
+		DetectedAt:  time.Now(),
+	}
+
+	ps := patterns.Default()
+
+	if err := ps.SaveUserPattern(p); err != nil {
+		return fmt.Errorf("saving user pattern: %w", err)
+	}
+
+	_, _ = fmt.Fprintf(os.Stdout, "Created user pattern %q with %d steps in category %q\n", name, len(steps), category)
+	_, _ = fmt.Fprintf(os.Stdout, "Saved to %s\n", ps.UserPatternsFile())
+
+	return nil
+}
+
+func runPatternsDelete(_ *cobra.Command, args []string) error {
+	name := args[0]
+
+	if patterns.IsBuiltinPattern(name) {
+		return fmt.Errorf("cannot delete builtin pattern %q", name)
+	}
+
+	ps := patterns.Default()
+
+	if err := ps.DeleteUserPattern(name); err != nil {
+		return fmt.Errorf("deleting user pattern: %w", err)
+	}
+
+	_, _ = fmt.Fprintf(os.Stdout, "Deleted user pattern %q\n", name)
 
 	return nil
 }
@@ -342,5 +433,16 @@ func severityIcon(sev string) string {
 		return "INF"
 	default:
 		return "   "
+	}
+}
+
+func sourceLabel(source string) string {
+	switch source {
+	case "builtin":
+		return "[builtin]"
+	case "user-defined":
+		return "[user]"
+	default:
+		return "[detected]"
 	}
 }

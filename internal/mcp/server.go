@@ -992,7 +992,7 @@ func truncate(s string, maxLen int) string {
 	return s
 }
 
-func runCommand(cmd string, args []string, dir string) (string, error) { //nolint:unparam // dir kept for future use
+func runCommand(cmd string, args []string, dir string) (string, error) {
 	c := exec.Command(cmd, args...)
 	if dir != "" {
 		c.Dir = dir

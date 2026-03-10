@@ -503,7 +503,7 @@ func TestChainTagsEmpty(t *testing.T) {
 	}
 }
 
-// ── sanitizeID ──
+// ── SanitizeID ──
 
 func TestSanitizeID(t *testing.T) {
 	tests := []struct {
@@ -518,8 +518,8 @@ func TestSanitizeID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := sanitizeID(tt.input); got != tt.want {
-				t.Errorf("sanitizeID(%q) = %q, want %q", tt.input, got, tt.want)
+			if got := SanitizeID(tt.input); got != tt.want {
+				t.Errorf("SanitizeID(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

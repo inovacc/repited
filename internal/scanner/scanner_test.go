@@ -290,18 +290,19 @@ git commit -m "build"
 func TestExtractCommandsSkipsNonShell(t *testing.T) {
 	dir := t.TempDir()
 
-	pyFile := filepath.Join(dir, "script.py")
-	if err := os.WriteFile(pyFile, []byte("print('hello')"), 0o644); err != nil {
+	// .rb files are not supported — should return nil
+	rbFile := filepath.Join(dir, "script.rb")
+	if err := os.WriteFile(rbFile, []byte("puts 'hello'"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	cmds, err := extractCommands(pyFile)
+	cmds, err := extractCommands(rbFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if cmds != nil {
-		t.Errorf("expected nil for .py file, got %v", cmds)
+		t.Errorf("expected nil for .rb file, got %v", cmds)
 	}
 }
 
@@ -633,6 +634,577 @@ func TestScanExcludeDoesNotAffectScriptsDetection(t *testing.T) {
 
 	if len(result.Projects[0].Scripts) != 1 {
 		t.Errorf("expected 1 script, got %d", len(result.Projects[0].Scripts))
+	}
+}
+
+// ── PowerShell: extractPowerShellCommands ──
+
+func TestExtractPowerShellCommands(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "deploy.ps1")
+
+	content := `# PowerShell deploy script
+git add -A
+git commit -m "deploy"
+docker build -t myapp .
+kubectl apply -f deploy.yaml
+go build ./...
+npm install
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"git add", "git commit", "docker build", "kubectl apply", "go build", "npm install"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPowerShellBuiltinsFiltered(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "builtins.ps1")
+
+	content := `Write-Host "Starting deploy"
+Get-ChildItem -Path .
+Set-Location /tmp
+New-Item -Path ./foo
+Remove-Item ./bar
+git status
+docker ps
+Select-Object Name
+Format-Table -AutoSize
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only git status and docker ps should be extracted
+	expected := []string{"git status", "docker ps"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPowerShellBacktickContinuation(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "multiline.ps1")
+
+	content := `docker build `+ "`" + `
+  -t myapp `+ "`" + `
+  .
+kubectl apply `+ "`" + `
+  -f deploy.yaml
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"docker build", "kubectl apply"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPowerShellCommentFiltering(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "comments.ps1")
+
+	content := `# Single line comment
+git status
+<#
+This is a multi-line
+block comment with git push inside
+#>
+docker ps
+# Another comment
+go test ./...
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"git status", "docker ps", "go test"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPowerShellInvocationOperator(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "invoke.ps1")
+
+	content := `& git status
+& "docker" ps
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"git status", "docker ps"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPowerShellVariableAssignment(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "vars.ps1")
+
+	content := `$result = git status
+$output = docker ps
+$version
+$env:PATH
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"git status", "docker ps"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestIsPowerShellSyntax(t *testing.T) {
+	tests := []struct {
+		line string
+		want bool
+	}{
+		{"if ($x -eq 1) {", true},
+		{"if($x){", true},
+		{"else {", true},
+		{"elseif ($x) {", true},
+		{"foreach ($item in $list) {", true},
+		{"for ($i=0; $i -lt 10; $i++) {", true},
+		{"while ($true) {", true},
+		{"switch ($val) {", true},
+		{"try {", true},
+		{"catch {", true},
+		{"finally {", true},
+		{"param([string]$Name)", true},
+		{"begin {", true},
+		{"process {", true},
+		{"end {", true},
+		{"}", true},
+		{"{", true},
+		// Not syntax
+		{"git status", false},
+		{"docker ps", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			if got := isPowerShellSyntax(tt.line); got != tt.want {
+				t.Errorf("isPowerShellSyntax(%q) = %v, want %v", tt.line, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestScanFindsPowerShellScripts(t *testing.T) {
+	root := t.TempDir()
+
+	proj := filepath.Join(root, "myproject")
+	if err := os.MkdirAll(filepath.Join(proj, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	scriptsDir := filepath.Join(proj, ".scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ps1Content := "git status\ndocker build -t app .\n"
+	if err := os.WriteFile(filepath.Join(scriptsDir, "deploy.ps1"), []byte(ps1Content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Scan(root, ScanOptions{MaxDepth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Projects) != 1 {
+		t.Fatalf("found %d projects, want 1", len(result.Projects))
+	}
+
+	if len(result.Projects[0].Scripts) != 1 {
+		t.Fatalf("found %d scripts, want 1", len(result.Projects[0].Scripts))
+	}
+
+	if result.Projects[0].Scripts[0].Name != "deploy.ps1" {
+		t.Errorf("script name = %q, want %q", result.Projects[0].Scripts[0].Name, "deploy.ps1")
+	}
+
+	if len(result.Projects[0].Scripts[0].Commands) != 2 {
+		t.Errorf("got %d commands, want 2: %v", len(result.Projects[0].Scripts[0].Commands), result.Projects[0].Scripts[0].Commands)
+	}
+
+	if len(result.ToolCounts) == 0 {
+		t.Error("expected tool counts, got none")
+	}
+}
+
+// ── Python: extractPythonCommands ──
+
+func TestExtractPythonSubprocessRun(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "deploy.py")
+
+	content := `import subprocess
+subprocess.run(["git", "push"])
+subprocess.run(["go", "build", "./..."])
+subprocess.call(["kubectl", "apply", "-f", "deploy.yaml"])
+subprocess.check_call(["docker", "build", "-t", "myapp", "."])
+subprocess.check_output(["cargo", "test"])
+subprocess.Popen(["npm", "install"])
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"git push", "go build", "kubectl apply", "docker build", "cargo test", "npm install"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPythonSubprocessStringForm(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "run.py")
+
+	content := `import subprocess
+subprocess.run("git status", shell=True)
+subprocess.call("docker ps")
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"git status", "docker ps"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPythonOsSystem(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "run.py")
+
+	content := `import os
+os.system("docker build .")
+os.system('git status')
+os.popen("kubectl get pods")
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"docker build", "git status", "kubectl get"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPythonBangCommands(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "notebook.py")
+
+	content := `# Jupyter-style commands
+!pip install flask
+!git status
+!docker ps
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"pip install", "git status", "docker ps"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPythonCommentFiltering(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "comments.py")
+
+	content := `# This is a comment with git push inside
+"""
+This is a docstring with docker build inside
+"""
+subprocess.run(["git", "status"])
+# Another comment
+'''
+Another docstring with npm install
+'''
+os.system("go test ./...")
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"git status", "go test"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPythonBuiltinsFiltered(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "syntax.py")
+
+	content := `import os
+import subprocess
+from pathlib import Path
+def deploy():
+    pass
+class Deployer:
+    pass
+if True:
+    print("hello")
+for i in range(10):
+    continue
+while False:
+    break
+try:
+    subprocess.run(["git", "push"])
+except Exception:
+    raise
+return
+assert True
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only git push should be extracted — all Python keywords/syntax filtered
+	expected := []string{"git push"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractPythonFStringSkipped(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fstring.py")
+
+	content := `import os
+os.system(f"docker build -t {tag} .")
+os.system("git status")
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// f-string should be skipped, only plain string extracted
+	expected := []string{"git status"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestScanFindsPythonScripts(t *testing.T) {
+	root := t.TempDir()
+
+	proj := filepath.Join(root, "myproject")
+	if err := os.MkdirAll(filepath.Join(proj, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	scriptsDir := filepath.Join(proj, ".scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	pyContent := `import subprocess
+subprocess.run(["git", "status"])
+subprocess.run(["docker", "build", "-t", "app", "."])
+`
+	if err := os.WriteFile(filepath.Join(scriptsDir, "deploy.py"), []byte(pyContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Scan(root, ScanOptions{MaxDepth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Projects) != 1 {
+		t.Fatalf("found %d projects, want 1", len(result.Projects))
+	}
+
+	if len(result.Projects[0].Scripts) != 1 {
+		t.Fatalf("found %d scripts, want 1", len(result.Projects[0].Scripts))
+	}
+
+	if result.Projects[0].Scripts[0].Name != "deploy.py" {
+		t.Errorf("script name = %q, want %q", result.Projects[0].Scripts[0].Name, "deploy.py")
+	}
+
+	if len(result.Projects[0].Scripts[0].Commands) != 2 {
+		t.Errorf("got %d commands, want 2: %v", len(result.Projects[0].Scripts[0].Commands), result.Projects[0].Scripts[0].Commands)
+	}
+
+	if len(result.ToolCounts) == 0 {
+		t.Error("expected tool counts, got none")
 	}
 }
 

@@ -1,7 +1,7 @@
 # Roadmap
 
 ## Current Status
-**Overall Progress:** 95% — All features implemented, tested, ready for v1.0.0 release
+**Overall Progress:** v1.1.0 in progress
 
 ## Phases
 
@@ -34,16 +34,24 @@
 - [x] Auto-install dependencies (omni, scout)
 - [x] Git pre-commit hook (lint:fix + vet + build)
 
-### Phase 4: Polish & Release [IN PROGRESS]
-- [x] Unit tests for scanner (92.8%), store (76.1%), flow (88.2%), patterns (79.3%), cmdlog (92.5%), deps (92.5%), mcp (49.9%)
+### Phase 4: Polish & Release [COMPLETE]
+- [x] Unit tests for scanner (92.8%), store (85.4%), flow (88.2%), patterns (79.3%), cmdlog (92.5%), deps (92.5%), mcp (49.9%)
 - [x] Integration tests for MCP server (49.9% — 13 integration tests via in-memory transports)
 - [x] Performance tuning (--exclude flag, DefaultExcludes, BenchmarkScan ~28ms/100 projects)
 - [x] CI/CD pipeline (GitHub Actions — workflows exist, repo pushed)
 - [x] Published to GitHub (github.com/inovacc/repited)
-- [ ] v1.0.0 release
+- [x] v1.0.0 release (goreleaser — 6 platform binaries)
+
+### Phase 5: v1.1.0 Features [IN PROGRESS]
+- [x] Pattern editing CLI (enable/disable/edit commands)
+- [x] Custom user-defined patterns (create/delete + source tags)
+- [x] PowerShell script parsing (.ps1 with cmdlet filtering)
+- [ ] Python script parsing
+- [ ] Watch mode (rescan on changes)
+- [ ] Pattern sharing (export/import)
 
 ## Test Coverage
-**Current:** ~81%  |  **Target:** 80%
+**Current:** ~85%  |  **Target:** 80%
 
 | Package | Coverage | Status |
 |---------|----------|--------|
@@ -52,6 +60,6 @@
 | internal/deps | 92.5% | Excellent |
 | internal/flow | 88.2% | Good |
 | internal/patterns | 79.3% | Good |
-| internal/store | 76.1% | Good |
-| internal/mcp | 49.9% | Integration tests added |
+| internal/store | 85.4% | Good |
+| internal/mcp | 74.4% | Good |
 | cmd | 0.0% | No tests (CLI wrappers) |
