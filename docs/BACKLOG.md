@@ -18,9 +18,6 @@ _No P2 items._
 
 ### P3 - Future
 - **Interactive TUI mode** — Large — Feature
-- **Watch mode (rescan on changes)** — Medium — Feature
-- **Python script parsing** — Medium — Feature
-- **Pattern sharing** — Large — Feature — Export/import patterns between teams
 
 ## Resolved
 
@@ -52,3 +49,6 @@ _No P2 items._
 | Pattern editing CLI | Implemented enable/disable/edit commands | 2026-03-10 |
 | Custom user-defined patterns | Implemented create/delete + source tags in list | 2026-03-10 |
 | PowerShell script parsing | Added .ps1 parsing with cmdlet filtering | 2026-03-10 |
+| Python script parsing | Added .py parsing (subprocess, os.system, ! commands) | 2026-03-10 |
+| Watch mode | Implemented scan --watch with fsnotify and debouncing | 2026-03-10 |
+| Pattern sharing | Implemented export/import with skip/merge/overwrite modes | 2026-03-10 |

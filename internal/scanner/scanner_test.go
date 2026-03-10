@@ -1208,6 +1208,270 @@ subprocess.run(["docker", "build", "-t", "app", "."])
 	}
 }
 
+// ── YAML: extractYAMLCommands ──
+
+func TestExtractYAMLGitHubActions(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "ci.yml")
+
+	content := `name: CI
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: go build ./...
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Lint
+        run: golangci-lint run --fix ./...
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"go build", "go test", "golangci-lint"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractYAMLGitLabCI(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, ".gitlab-ci.yaml")
+
+	content := `stages:
+  - build
+  - test
+
+build_job:
+  stage: build
+  script:
+    - go build ./...
+    - go vet ./...
+
+test_job:
+  stage: test
+  script:
+    - go test -count=1 ./...
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"go build", "go vet", "go test"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractYAMLMultilineRun(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "ci.yml")
+
+	content := `name: CI
+jobs:
+  deploy:
+    steps:
+      - name: Deploy
+        run: |
+          go build ./...
+          go test -count=1 ./...
+          git add .
+          git commit -m "deploy"
+          docker build -t myapp .
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"go build", "go test", "git add", "git commit", "docker build"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractYAMLSkipsNonRunKeys(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "ci.yml")
+
+	content := `name: Build and Test
+on:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GO111MODULE: "on"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Build
+        run: go build ./...
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only "go build" from the run: key — uses:, name:, env:, with: are skipped.
+	expected := []string{"go build"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestExtractYAMLNestedSteps(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "azure-pipelines.yml")
+
+	content := `trigger:
+  - main
+
+stages:
+  - stage: Build
+    jobs:
+      - job: BuildJob
+        steps:
+          - script: go build ./...
+          - script: go test ./...
+  - stage: Deploy
+    jobs:
+      - job: DeployJob
+        steps:
+          - script: docker build -t myapp .
+          - script: kubectl apply -f deploy.yaml
+`
+
+	if err := os.WriteFile(script, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := extractCommands(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"go build", "go test", "docker build", "kubectl apply"}
+	if len(cmds) != len(expected) {
+		t.Fatalf("got %d commands %v, want %d %v", len(cmds), cmds, len(expected), expected)
+	}
+
+	for i, want := range expected {
+		if cmds[i] != want {
+			t.Errorf("command[%d] = %q, want %q", i, cmds[i], want)
+		}
+	}
+}
+
+func TestScanFindsYAMLFiles(t *testing.T) {
+	root := t.TempDir()
+
+	proj := filepath.Join(root, "myproject")
+
+	if err := os.MkdirAll(filepath.Join(proj, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	scriptsDir := filepath.Join(proj, ".scripts")
+
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ymlContent := `name: CI
+jobs:
+  build:
+    steps:
+      - name: Build
+        run: go build ./...
+      - name: Test
+        run: go test ./...
+`
+
+	if err := os.WriteFile(filepath.Join(scriptsDir, "ci.yml"), []byte(ymlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Scan(root, ScanOptions{MaxDepth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Projects) != 1 {
+		t.Fatalf("found %d projects, want 1", len(result.Projects))
+	}
+
+	if len(result.Projects[0].Scripts) != 1 {
+		t.Fatalf("found %d scripts, want 1", len(result.Projects[0].Scripts))
+	}
+
+	if result.Projects[0].Scripts[0].Name != "ci.yml" {
+		t.Errorf("script name = %q, want %q", result.Projects[0].Scripts[0].Name, "ci.yml")
+	}
+
+	if len(result.Projects[0].Scripts[0].Commands) != 2 {
+		t.Errorf("got %d commands, want 2: %v", len(result.Projects[0].Scripts[0].Commands), result.Projects[0].Scripts[0].Commands)
+	}
+
+	if len(result.ToolCounts) == 0 {
+		t.Error("expected tool counts, got none")
+	}
+}
+
 // ── Benchmark ──
 
 func BenchmarkScan(b *testing.B) {

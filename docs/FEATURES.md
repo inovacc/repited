@@ -83,14 +83,24 @@
 - **Description:** Parse `.ps1` scripts alongside `.sh`/`.bash`, with cmdlet filtering
 - **Includes:** PowerShell cmdlet recognition, noise filtering for PS-specific syntax
 
+### Python Script Parsing
+- **Status:** Completed
+- **Description:** Parse `.py` scripts for subprocess calls, os.system invocations, and `!` shell commands
+- **Includes:** Python-specific noise filtering, subprocess.run/call/Popen detection
+
+### Watch Mode
+- **Status:** Completed
+- **Description:** File system watcher that rescans on changes to `.scripts/` directories
+- **Includes:** `scan --watch` flag, fsnotify integration, debouncing to avoid duplicate scans
+
+### Pattern Sharing
+- **Status:** Completed
+- **Description:** Export and import patterns between teams and projects
+- **Includes:** `patterns export`, `patterns import` with skip/merge/overwrite conflict modes
+
 ## Proposed Features
 
 ### Interactive TUI
 - **Priority:** P3
 - **Status:** Proposed
 - **Description:** Terminal UI for browsing scan results and patterns
-
-### Pattern Sharing
-- **Priority:** P3
-- **Status:** Proposed
-- **Description:** Export/import patterns between teams and projects

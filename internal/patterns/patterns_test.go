@@ -2,8 +2,10 @@ package patterns
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/inovacc/repited/internal/store"
@@ -726,5 +728,746 @@ func TestWriteJSON(t *testing.T) {
 
 	if len(loaded) != 1 || loaded[0].ID != "test" {
 		t.Errorf("loaded = %v, want [{ID: test}]", loaded)
+	}
+}
+
+// ── SetRuleEnabled ──
+
+func TestSetRuleEnabled(t *testing.T) {
+	tests := []struct {
+		name      string
+		ruleName  string
+		enabled   bool
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:     "enable a disabled rule",
+			ruleName: "No debug statements",
+			enabled:  true,
+		},
+		{
+			name:     "disable an enabled rule",
+			ruleName: "Lint before commit",
+			enabled:  false,
+		},
+		{
+			name:      "rule not found",
+			ruleName:  "nonexistent-rule",
+			enabled:   true,
+			wantErr:   true,
+			errSubstr: "not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ps := testPatternStore(t)
+
+			if err := ps.Init(); err != nil {
+				t.Fatal(err)
+			}
+
+			err := ps.SetRuleEnabled(tt.ruleName, tt.enabled)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+
+				if !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("error = %q, want substring %q", err.Error(), tt.errSubstr)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Verify the rule was updated on disk
+			rules, err := ps.LoadRules()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			found := false
+
+			for _, r := range rules {
+				if r.Name == tt.ruleName {
+					found = true
+
+					if r.Enabled != tt.enabled {
+						t.Errorf("rule %q Enabled = %v, want %v", tt.ruleName, r.Enabled, tt.enabled)
+					}
+
+					break
+				}
+			}
+
+			if !found {
+				t.Errorf("rule %q not found after SetRuleEnabled", tt.ruleName)
+			}
+		})
+	}
+}
+
+// ── EditPattern ──
+
+func TestEditPattern(t *testing.T) {
+	tests := []struct {
+		name        string
+		patternName string
+		category    string
+		tools       []string
+		wantErr     bool
+		errSubstr   string
+	}{
+		{
+			name:        "change category",
+			patternName: "Go development flow",
+			category:    "deploy",
+		},
+		{
+			name:        "change tools",
+			patternName: "Go development flow",
+			tools:       []string{"go build", "go test", "git commit"},
+		},
+		{
+			name:        "change both category and tools",
+			patternName: "Go development flow",
+			category:    "test",
+			tools:       []string{"go test ./...", "go vet ./..."},
+		},
+		{
+			name:        "pattern not found",
+			patternName: "nonexistent-pattern",
+			category:    "flow",
+			wantErr:     true,
+			errSubstr:   "not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ps := testPatternStore(t)
+
+			if err := ps.Init(); err != nil {
+				t.Fatal(err)
+			}
+
+			err := ps.EditPattern(tt.patternName, tt.category, tt.tools)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+
+				if !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("error = %q, want substring %q", err.Error(), tt.errSubstr)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Verify changes persisted
+			patterns, err := ps.LoadPatterns()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			found := false
+
+			for _, p := range patterns {
+				if p.Name == tt.patternName {
+					found = true
+
+					if tt.category != "" && p.Category != tt.category {
+						t.Errorf("category = %q, want %q", p.Category, tt.category)
+					}
+
+					if len(tt.tools) > 0 {
+						if len(p.Steps) != len(tt.tools) {
+							t.Errorf("steps count = %d, want %d", len(p.Steps), len(tt.tools))
+						} else {
+							for i, s := range p.Steps {
+								if s.Tool != tt.tools[i] {
+									t.Errorf("step[%d].Tool = %q, want %q", i, s.Tool, tt.tools[i])
+								}
+
+								if s.Order != i+1 {
+									t.Errorf("step[%d].Order = %d, want %d", i, s.Order, i+1)
+								}
+							}
+						}
+					}
+
+					break
+				}
+			}
+
+			if !found {
+				t.Errorf("pattern %q not found after EditPattern", tt.patternName)
+			}
+		})
+	}
+}
+
+// ── SaveUserPattern ──
+
+func TestSaveUserPattern(t *testing.T) {
+	t.Run("save new pattern", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		p := Pattern{
+			ID:       "user-test-1",
+			Name:     "my custom flow",
+			Category: "flow",
+			Source:   "user-defined",
+			Steps: []Step{
+				{Tool: "go build", Order: 1, OnFail: "stop"},
+				{Tool: "go test", Order: 2, OnFail: "warn"},
+			},
+		}
+
+		if err := ps.SaveUserPattern(p); err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify persisted
+		loaded, err := ps.LoadUserPatterns()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(loaded) != 1 {
+			t.Fatalf("expected 1 user pattern, got %d", len(loaded))
+		}
+
+		if loaded[0].Name != "my custom flow" {
+			t.Errorf("name = %q, want %q", loaded[0].Name, "my custom flow")
+		}
+	})
+
+	t.Run("duplicate name error", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		p := Pattern{ID: "user-dup", Name: "dup-flow", Category: "flow", Source: "user-defined"}
+
+		if err := ps.SaveUserPattern(p); err != nil {
+			t.Fatal(err)
+		}
+
+		err := ps.SaveUserPattern(p)
+		if err == nil {
+			t.Fatal("expected error for duplicate name, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "already exists") {
+			t.Errorf("error = %q, want substring %q", err.Error(), "already exists")
+		}
+	})
+
+	t.Run("save multiple patterns", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		for i := range 3 {
+			p := Pattern{
+				ID:       fmt.Sprintf("user-%d", i),
+				Name:     fmt.Sprintf("pattern-%d", i),
+				Category: "flow",
+				Source:   "user-defined",
+			}
+
+			if err := ps.SaveUserPattern(p); err != nil {
+				t.Fatalf("saving pattern %d: %v", i, err)
+			}
+		}
+
+		loaded, err := ps.LoadUserPatterns()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(loaded) != 3 {
+			t.Errorf("expected 3 user patterns, got %d", len(loaded))
+		}
+	})
+}
+
+// ── DeleteUserPattern ──
+
+func TestDeleteUserPattern(t *testing.T) {
+	t.Run("delete existing", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		// Seed two patterns
+		for _, name := range []string{"keep-me", "delete-me"} {
+			p := Pattern{ID: name, Name: name, Category: "flow", Source: "user-defined"}
+
+			if err := ps.SaveUserPattern(p); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		if err := ps.DeleteUserPattern("delete-me"); err != nil {
+			t.Fatal(err)
+		}
+
+		loaded, err := ps.LoadUserPatterns()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(loaded) != 1 {
+			t.Fatalf("expected 1 remaining pattern, got %d", len(loaded))
+		}
+
+		if loaded[0].Name != "keep-me" {
+			t.Errorf("remaining pattern = %q, want %q", loaded[0].Name, "keep-me")
+		}
+	})
+
+	t.Run("not found error", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		err := ps.DeleteUserPattern("nonexistent")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "not found") {
+			t.Errorf("error = %q, want substring %q", err.Error(), "not found")
+		}
+	})
+
+	t.Run("cannot delete builtin via user patterns", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		// The user-patterns.json file only holds user-defined patterns,
+		// so attempting to delete a builtin name that isn't in user-patterns
+		// should return not found.
+		err := ps.DeleteUserPattern("Go development flow")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+
+		if !strings.Contains(err.Error(), "not found") {
+			t.Errorf("error = %q, want substring %q", err.Error(), "not found")
+		}
+	})
+}
+
+// ── LoadUserPatterns ──
+
+func TestLoadUserPatterns(t *testing.T) {
+	t.Run("load from file", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		// Write a user-patterns.json manually
+		userPats := []Pattern{
+			{ID: "u1", Name: "user-pat-1", Category: "flow", Source: "user-defined"},
+			{ID: "u2", Name: "user-pat-2", Category: "test", Source: "user-defined"},
+		}
+
+		data, err := json.MarshalIndent(userPats, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(ps.UserPatternsFile(), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		loaded, err := ps.LoadUserPatterns()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(loaded) != 2 {
+			t.Fatalf("expected 2 user patterns, got %d", len(loaded))
+		}
+
+		if loaded[0].Name != "user-pat-1" {
+			t.Errorf("first pattern name = %q, want %q", loaded[0].Name, "user-pat-1")
+		}
+	})
+
+	t.Run("missing file returns nil", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		loaded, err := ps.LoadUserPatterns()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if loaded != nil {
+			t.Errorf("expected nil for missing file, got %v", loaded)
+		}
+	})
+
+	t.Run("empty array returns empty slice", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		if err := os.WriteFile(ps.UserPatternsFile(), []byte("[]"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		loaded, err := ps.LoadUserPatterns()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(loaded) != 0 {
+			t.Errorf("expected 0 patterns for empty array, got %d", len(loaded))
+		}
+	})
+}
+
+// ── ExportPatterns ──
+
+func TestExportPatterns(t *testing.T) {
+	t.Run("export builtin only", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		if err := ps.Init(); err != nil {
+			t.Fatal(err)
+		}
+
+		exp, err := ps.ExportPatterns(true, false, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if exp.Version != "1" {
+			t.Errorf("version = %q, want %q", exp.Version, "1")
+		}
+
+		if exp.ExportedAt == "" {
+			t.Error("exported_at should not be empty")
+		}
+
+		if len(exp.Patterns) != len(BuiltinPatterns()) {
+			t.Errorf("expected %d builtin patterns, got %d", len(BuiltinPatterns()), len(exp.Patterns))
+		}
+
+		for _, p := range exp.Patterns {
+			if p.Source != "builtin" {
+				t.Errorf("expected all patterns to be builtin, got source=%q", p.Source)
+			}
+		}
+	})
+
+	t.Run("export user only", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		if err := ps.Init(); err != nil {
+			t.Fatal(err)
+		}
+
+		// Save a user pattern
+		userPat := Pattern{ID: "u-export", Name: "exportable", Category: "flow", Source: "user-defined"}
+
+		if err := ps.SaveUserPattern(userPat); err != nil {
+			t.Fatal(err)
+		}
+
+		exp, err := ps.ExportPatterns(false, true, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(exp.Patterns) != 1 {
+			t.Fatalf("expected 1 user pattern, got %d", len(exp.Patterns))
+		}
+
+		if exp.Patterns[0].Name != "exportable" {
+			t.Errorf("name = %q, want %q", exp.Patterns[0].Name, "exportable")
+		}
+	})
+
+	t.Run("export all includes builtin and user", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		if err := ps.Init(); err != nil {
+			t.Fatal(err)
+		}
+
+		userPat := Pattern{ID: "u-all", Name: "user-all", Category: "flow", Source: "user-defined"}
+
+		if err := ps.SaveUserPattern(userPat); err != nil {
+			t.Fatal(err)
+		}
+
+		exp, err := ps.ExportPatterns(true, true, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Should have builtins + 1 user pattern
+		expected := len(BuiltinPatterns()) + 1
+
+		if len(exp.Patterns) != expected {
+			t.Errorf("expected %d patterns, got %d", expected, len(exp.Patterns))
+		}
+	})
+
+	t.Run("export with no patterns returns empty", func(t *testing.T) {
+		ps := testPatternStore(t)
+
+		exp, err := ps.ExportPatterns(false, true, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(exp.Patterns) != 0 {
+			t.Errorf("expected 0 patterns, got %d", len(exp.Patterns))
+		}
+	})
+}
+
+// ── ImportPatterns ──
+
+func TestImportPatternsNew(t *testing.T) {
+	ps := testPatternStore(t)
+
+	data := &ExportData{
+		Version: "1",
+		Patterns: []Pattern{
+			{ID: "imp-1", Name: "imported-1", Category: "flow", Source: "user-defined"},
+			{ID: "imp-2", Name: "imported-2", Category: "test", Source: "user-defined"},
+		},
+	}
+
+	imported, skipped, merged, err := ps.ImportPatterns(data, "skip")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if imported != 2 {
+		t.Errorf("imported = %d, want 2", imported)
+	}
+
+	if skipped != 0 {
+		t.Errorf("skipped = %d, want 0", skipped)
+	}
+
+	if merged != 0 {
+		t.Errorf("merged = %d, want 0", merged)
+	}
+
+	loaded, err := ps.LoadUserPatterns()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(loaded) != 2 {
+		t.Errorf("expected 2 patterns on disk, got %d", len(loaded))
+	}
+}
+
+func TestImportPatternsSkipDuplicates(t *testing.T) {
+	ps := testPatternStore(t)
+
+	existing := Pattern{ID: "existing", Name: "dup-name", Category: "flow", Source: "user-defined"}
+
+	if err := ps.SaveUserPattern(existing); err != nil {
+		t.Fatal(err)
+	}
+
+	data := &ExportData{
+		Version: "1",
+		Patterns: []Pattern{
+			{ID: "new-1", Name: "dup-name", Category: "test", Source: "user-defined"},
+			{ID: "new-2", Name: "fresh", Category: "flow", Source: "user-defined"},
+		},
+	}
+
+	imported, skipped, merged, err := ps.ImportPatterns(data, "skip")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if imported != 1 {
+		t.Errorf("imported = %d, want 1", imported)
+	}
+
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1", skipped)
+	}
+
+	if merged != 0 {
+		t.Errorf("merged = %d, want 0", merged)
+	}
+
+	loaded, err := ps.LoadUserPatterns()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, p := range loaded {
+		if p.Name == "dup-name" && p.Category != "flow" {
+			t.Errorf("skipped pattern should retain original category %q, got %q", "flow", p.Category)
+		}
+	}
+}
+
+func TestImportPatternsMerge(t *testing.T) {
+	ps := testPatternStore(t)
+
+	existing := Pattern{
+		ID:       "existing",
+		Name:     "merge-target",
+		Category: "flow",
+		Source:   "user-defined",
+		Steps:    []Step{{Tool: "go build", Order: 1, OnFail: "stop"}},
+		Tags:     []string{"go"},
+	}
+
+	if err := ps.SaveUserPattern(existing); err != nil {
+		t.Fatal(err)
+	}
+
+	data := &ExportData{
+		Version: "1",
+		Patterns: []Pattern{
+			{
+				ID:       "import-merge",
+				Name:     "merge-target",
+				Category: "test",
+				Source:   "user-defined",
+				Steps: []Step{
+					{Tool: "go build", Order: 1, OnFail: "stop"},
+					{Tool: "go test", Order: 2, OnFail: "warn"},
+					{Tool: "git commit", Order: 3, OnFail: "stop"},
+				},
+				Tags: []string{"go", "git"},
+			},
+		},
+	}
+
+	imported, skipped, merged, err := ps.ImportPatterns(data, "merge")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if imported != 0 {
+		t.Errorf("imported = %d, want 0", imported)
+	}
+
+	if skipped != 0 {
+		t.Errorf("skipped = %d, want 0", skipped)
+	}
+
+	if merged != 1 {
+		t.Errorf("merged = %d, want 1", merged)
+	}
+
+	loaded, err := ps.LoadUserPatterns()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 pattern, got %d", len(loaded))
+	}
+
+	p := loaded[0]
+
+	if len(p.Steps) != 3 {
+		t.Errorf("steps count = %d, want 3", len(p.Steps))
+	}
+
+	if len(p.Tags) != 2 {
+		t.Errorf("tags count = %d, want 2, got %v", len(p.Tags), p.Tags)
+	}
+}
+
+func TestImportPatternsOverwrite(t *testing.T) {
+	ps := testPatternStore(t)
+
+	existing := Pattern{
+		ID:       "existing",
+		Name:     "overwrite-target",
+		Category: "flow",
+		Source:   "user-defined",
+		Steps:    []Step{{Tool: "go build", Order: 1}},
+	}
+
+	if err := ps.SaveUserPattern(existing); err != nil {
+		t.Fatal(err)
+	}
+
+	replacement := Pattern{
+		ID:       "replacement",
+		Name:     "overwrite-target",
+		Category: "deploy",
+		Source:   "user-defined",
+		Steps: []Step{
+			{Tool: "docker build", Order: 1, OnFail: "stop"},
+			{Tool: "docker push", Order: 2, OnFail: "stop"},
+		},
+	}
+
+	data := &ExportData{
+		Version:  "1",
+		Patterns: []Pattern{replacement},
+	}
+
+	imported, skipped, merged, err := ps.ImportPatterns(data, "overwrite")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if imported != 0 {
+		t.Errorf("imported = %d, want 0", imported)
+	}
+
+	if skipped != 0 {
+		t.Errorf("skipped = %d, want 0", skipped)
+	}
+
+	if merged != 1 {
+		t.Errorf("merged (overwritten) = %d, want 1", merged)
+	}
+
+	loaded, err := ps.LoadUserPatterns()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 pattern, got %d", len(loaded))
+	}
+
+	p := loaded[0]
+
+	if p.ID != "replacement" {
+		t.Errorf("ID = %q, want %q", p.ID, "replacement")
+	}
+
+	if p.Category != "deploy" {
+		t.Errorf("category = %q, want %q", p.Category, "deploy")
+	}
+
+	if len(p.Steps) != 2 {
+		t.Errorf("steps count = %d, want 2", len(p.Steps))
+	}
+}
+
+// ── IsBuiltinPattern ──
+
+func TestIsBuiltinPattern(t *testing.T) {
+	if !IsBuiltinPattern("Go development flow") {
+		t.Error("expected 'Go development flow' to be builtin")
+	}
+
+	if IsBuiltinPattern("nonexistent-pattern") {
+		t.Error("expected 'nonexistent-pattern' to not be builtin")
 	}
 }

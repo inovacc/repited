@@ -1,7 +1,7 @@
 # Roadmap
 
 ## Current Status
-**Overall Progress:** v1.1.0 in progress
+**Overall Progress:** v1.1.0 complete
 
 ## Phases
 
@@ -42,13 +42,18 @@
 - [x] Published to GitHub (github.com/inovacc/repited)
 - [x] v1.0.0 release (goreleaser — 6 platform binaries)
 
-### Phase 5: v1.1.0 Features [IN PROGRESS]
+### Phase 5: v1.1.0 Features [COMPLETE]
 - [x] Pattern editing CLI (enable/disable/edit commands)
 - [x] Custom user-defined patterns (create/delete + source tags)
 - [x] PowerShell script parsing (.ps1 with cmdlet filtering)
-- [ ] Python script parsing
-- [ ] Watch mode (rescan on changes)
-- [ ] Pattern sharing (export/import)
+- [x] Python script parsing (.py — subprocess, os.system, ! commands)
+- [x] Watch mode (scan --watch with fsnotify and debouncing)
+- [x] Pattern sharing (export/import with skip/merge/overwrite modes)
+
+### Phase 6: v1.2.0 Enhancements [PLANNED]
+- [ ] Interactive TUI mode (browse scan results and patterns)
+- [ ] Remote pattern registry
+- [ ] Plugin system for custom analyzers
 
 ## Test Coverage
 **Current:** ~85%  |  **Target:** 80%

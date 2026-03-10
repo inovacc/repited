@@ -49,10 +49,19 @@
   - [x] goreleaser release (v1.0.0 — 6 platform binaries published)
 
 ## v1.1.0 - Feature Expansion
-- **Status:** In Progress
+- **Published:** 2026-03-10
+- **Status:** Complete
 - **Goals:**
   - [x] Pattern editing CLI (enable/disable/edit commands)
   - [x] Custom user-defined patterns (create/delete + source tags in list)
   - [x] PowerShell script parsing (.ps1 with cmdlet filtering)
-  - [ ] Python script parsing
-  - [ ] Watch mode (rescan on changes)
+  - [x] Python script parsing (.py — subprocess, os.system, ! commands)
+  - [x] Watch mode (scan --watch with fsnotify and debouncing)
+  - [x] Pattern sharing (export/import with skip/merge/overwrite modes)
+
+## v1.2.0 - TUI & Extensibility
+- **Status:** Planned
+- **Goals:**
+  - [ ] Interactive TUI mode (browse scan results and patterns)
+  - [ ] Remote pattern registry
+  - [ ] Plugin system for custom analyzers

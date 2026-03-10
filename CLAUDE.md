@@ -18,6 +18,7 @@ go run . scan .      # scan current dir
 go run . flow --dry-run  # preview workflow
 go run . mcp serve   # start MCP server (stdio)
 go run . patterns init   # initialize patterns
+go run . scan --watch .  # watch mode (rescan on changes)
 ```
 
 ## Pre-commit Rules
@@ -57,6 +58,7 @@ Git pre-commit hook runs automatically:
 | `internal/flow/flow.go` | Pipeline engine (Step, Result, Pipeline) |
 | `internal/cmdlog/cmdlog.go` | KSUID log files at AppData\Local\Repited\commands\ |
 | `internal/mcp/server.go` | MCP server with 7 tools (flow, scan, stats, relations, patterns, scout, next-steps) + install/uninstall |
+| `internal/scanner/watcher.go` | File system watcher for scan --watch mode |
 | `internal/patterns/patterns.go` | Pattern store, detection, builtin patterns & rules |
 
 ## MCP Server
@@ -79,7 +81,7 @@ Tools exposed:
 
 ## Conventions
 
-- Parse `.sh`, `.bash`, and `.ps1` files (skip `.go`, `.py`, `.js`)
+- Parse `.sh`, `.bash`, `.ps1`, and `.py` files (skip `.go`, `.js`)
 - Track multi-word commands: go, git, gh, docker, kubectl, task, terraform, npm, cargo, pip, omni
 - Skip shell builtins (cd, export, echo, etc.)
 - Skip code fragments (Go/Python/JS syntax)

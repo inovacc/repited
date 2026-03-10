@@ -6,8 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Project represents a discovered project with .git and .scripts directories.
@@ -101,18 +104,31 @@ func Scan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 			}
 		}
 
-		// Check if this directory has both .git and .scripts
+		// Check if this directory has .git
 		gitDir := filepath.Join(path, ".git")
-		scriptsDir := filepath.Join(path, ".scripts")
 
-		if !isDir(gitDir) || !isDir(scriptsDir) {
+		if !isDir(gitDir) {
 			return nil
 		}
 
-		// Found a project — read its scripts
-		scripts, err := readScripts(scriptsDir)
-		if err != nil {
-			return nil //nolint:nilerr // skip unreadable dirs
+		// Collect scripts from .scripts/ directory
+		var scripts []Script
+
+		scriptsDir := filepath.Join(path, ".scripts")
+
+		if isDir(scriptsDir) {
+			dirScripts, err := readScripts(scriptsDir)
+			if err == nil {
+				scripts = append(scripts, dirScripts...)
+			}
+		}
+
+		// Collect scripts from task runner files in the project root
+		taskRunnerScripts := readTaskRunnerScripts(path)
+		scripts = append(scripts, taskRunnerScripts...)
+
+		if len(scripts) == 0 {
+			return nil
 		}
 
 		for _, s := range scripts {
@@ -189,6 +205,8 @@ func extractCommands(path string) ([]string, error) {
 		return extractPowerShellCommands(path)
 	case ".py":
 		return extractPythonCommands(path)
+	case ".yml", ".yaml":
+		return extractYAMLCommands(path)
 	default:
 		return nil, nil
 	}
@@ -447,18 +465,25 @@ func extractPowerShellTool(stmt string) string {
 
 // isShellSyntax returns true for shell control flow keywords.
 func isShellSyntax(line string) bool {
-	keywords := []string{
-		"if ", "then", "else", "elif ", "fi", "for ", "do", "done",
-		"while ", "until ", "case ", "esac", "select ", "function ",
-		"}", "{", "[[", "]]", "((", "))",
+	// Prefix keywords: if the line starts with these, it's shell syntax.
+	// These include a trailing space/char to avoid false positives (e.g., "for " won't match "format").
+	prefixKeywords := []string{
+		"if ", "elif ", "for ", "while ", "until ", "case ", "select ", "function ",
 	}
-	for _, kw := range keywords {
-		if line == kw || strings.HasPrefix(line, kw) {
+	for _, kw := range prefixKeywords {
+		if strings.HasPrefix(line, kw) {
 			return true
 		}
 	}
 
-	return false
+	// Exact-match keywords: these must match the entire line.
+	// Avoids false positives like "do" matching "docker" or "fi" matching "find".
+	exactKeywords := []string{
+		"then", "else", "fi", "do", "done", "esac",
+		"}", "{", "[[", "]]", "((", "))",
+	}
+
+	return slices.Contains(exactKeywords, line)
 }
 
 // isCodeFragment returns true for lines that are clearly code, not shell commands.
@@ -546,7 +571,7 @@ func extractTool(stmt string) string {
 	}
 
 	// For "go <subcmd>", "git <subcmd>", "gh <subcmd>", "docker <subcmd>", etc.
-	multiWordTools := []string{"go", "git", "gh", "docker", "kubectl", "task", "terraform", "tf", "npm", "cargo", "pip"}
+	multiWordTools := []string{"go", "git", "gh", "docker", "kubectl", "task", "terraform", "tf", "npm", "cargo", "pip", "make", "just"}
 	for _, t := range multiWordTools {
 		if cmd == t && len(fields) > 1 && !strings.HasPrefix(fields[1], "-") {
 			return cmd + " " + fields[1]
@@ -879,6 +904,143 @@ func extractQuotedString(text string) string {
 	}
 
 	return text[1 : end+1]
+}
+
+// extractYAMLCommands parses a YAML CI/CD pipeline file and extracts commands
+// from run: (GitHub Actions, Azure Pipelines) and script: (GitLab CI) keys.
+func extractYAMLCommands(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var root yaml.Node
+
+	if err = yaml.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("parsing YAML %s: %w", path, err)
+	}
+
+	var commands []string
+
+	walkYAMLNode(&root, &commands)
+
+	return commands, nil
+}
+
+// yamlRunKeys are mapping keys whose scalar values contain shell commands.
+var yamlRunKeys = map[string]bool{
+	"run":    true, // GitHub Actions, Azure Pipelines
+	"script": true, // GitLab CI
+}
+
+// yamlSkipKeys are mapping keys whose values should never be searched for commands.
+// These are leaf-level configuration keys, not structural keys that contain steps.
+var yamlSkipKeys = map[string]bool{
+	"name": true, "uses": true, "with": true, "env": true,
+	"if": true, "on": true, "services": true,
+	"needs": true, "strategy": true, "matrix": true,
+	"container": true, "image": true, "timeout-minutes": true,
+	"working-directory": true, "shell": true, "id": true,
+	"outputs": true, "defaults": true, "permissions": true,
+	"concurrency": true, "secrets": true, "inputs": true,
+	"cache": true, "artifacts": true, "variables": true,
+	"tags": true, "rules": true,
+	"only": true, "except": true, "when": true, "allow_failure": true,
+	"trigger": true, "resource_group": true, "environment": true,
+	"extends": true, "include": true,
+}
+
+// walkYAMLNode recursively walks a yaml.Node tree looking for run:/script: keys.
+func walkYAMLNode(node *yaml.Node, commands *[]string) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind {
+	case yaml.DocumentNode:
+		for _, child := range node.Content {
+			walkYAMLNode(child, commands)
+		}
+
+	case yaml.MappingNode:
+		// Content alternates: key, value, key, value, ...
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i]
+			val := node.Content[i+1]
+
+			switch {
+			case key.Kind == yaml.ScalarNode && yamlRunKeys[key.Value]:
+				extractCommandsFromYAMLValue(val, commands)
+			case key.Kind == yaml.ScalarNode && yamlSkipKeys[key.Value]:
+				// Skip known non-command keys entirely.
+				continue
+			default:
+				// Recurse into the value for unknown/structural keys.
+				walkYAMLNode(val, commands)
+			}
+		}
+
+	case yaml.SequenceNode:
+		for _, child := range node.Content {
+			walkYAMLNode(child, commands)
+		}
+
+	case yaml.ScalarNode, yaml.AliasNode:
+		// Leaf nodes — nothing to extract.
+	}
+}
+
+// extractCommandsFromYAMLValue extracts commands from a YAML value node.
+// The value can be a scalar (single or multi-line run: block) or a sequence
+// (GitLab CI script: list).
+func extractCommandsFromYAMLValue(node *yaml.Node, commands *[]string) {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		// Single string — may be multi-line (run: |)
+		extractCommandsFromShellBlock(node.Value, commands)
+
+	case yaml.SequenceNode:
+		// List of strings (GitLab CI script: ["cmd1", "cmd2"])
+		for _, item := range node.Content {
+			if item.Kind == yaml.ScalarNode {
+				extractCommandsFromShellBlock(item.Value, commands)
+			}
+		}
+
+	case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
+		// Not expected at this level — ignore.
+	}
+}
+
+// extractCommandsFromShellBlock splits a shell script block by newlines and
+// extracts tool commands from each line using the existing extractTool logic.
+func extractCommandsFromShellBlock(block string, commands *[]string) {
+	for line := range strings.SplitSeq(block, "\n") {
+		line = strings.TrimSpace(line)
+
+		// Skip empty lines, comments, shebangs
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+			continue
+		}
+
+		// Skip shell control flow
+		if isShellSyntax(line) {
+			continue
+		}
+
+		// Skip code fragments
+		if isCodeFragment(line) {
+			continue
+		}
+
+		statements := splitStatements(line)
+		for _, stmt := range statements {
+			tool := extractTool(stmt)
+			if tool != "" {
+				*commands = append(*commands, tool)
+			}
+		}
+	}
 }
 
 func isDir(path string) bool {
