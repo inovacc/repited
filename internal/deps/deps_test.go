@@ -165,3 +165,201 @@ func TestStatus(t *testing.T) {
 		t.Error("Status should contain status indicators")
 	}
 }
+
+// ── Additional coverage tests ──
+
+// withKnownDeps temporarily replaces KnownDeps for the duration of f,
+// then restores the original value.
+func withKnownDeps(t *testing.T, deps []Dep, f func()) {
+	t.Helper()
+
+	original := KnownDeps
+	KnownDeps = deps
+
+	t.Cleanup(func() { KnownDeps = original })
+	f()
+}
+
+func TestInstallInvalidPackage(t *testing.T) {
+	// Test Install with a package path that doesn't exist — exercises the
+	// cmd.Run() error path (lines 85-87).
+	dep := Dep{Name: "fake-tool", InstallCmd: "example.invalid/nonexistent/pkg@latest"}
+
+	err := Install(dep)
+	if err == nil {
+		t.Fatal("expected error when installing invalid package")
+	}
+
+	if !strings.Contains(err.Error(), "installing fake-tool") {
+		t.Errorf("error = %q, want it to mention 'installing fake-tool'", err.Error())
+	}
+}
+
+func TestEnsureInstalledKnownDepAlreadyPresent(t *testing.T) {
+	// Inject "go" as a known dep so EnsureInstalled finds it already
+	// installed and returns nil (covers the early-return on line 27).
+	withKnownDeps(t, []Dep{
+		{Name: "go", InstallCmd: "example.com/fake@latest", Required: true},
+	}, func() {
+		err := EnsureInstalled("go")
+		if err != nil {
+			t.Errorf("EnsureInstalled(go) should succeed when already installed, got: %v", err)
+		}
+	})
+}
+
+func TestEnsureInstalledMissingWithInstallCmd(t *testing.T) {
+	// Dep not installed, has an InstallCmd that will fail — exercises the
+	// Install(dep) call inside EnsureInstalled (line 36).
+	withKnownDeps(t, []Dep{
+		{Name: "nonexistent-tool-abc", InstallCmd: "example.invalid/bad@latest", Required: true},
+	}, func() {
+		err := EnsureInstalled("nonexistent-tool-abc")
+		if err == nil {
+			t.Fatal("expected error for missing dep with bad install cmd")
+		}
+
+		if !strings.Contains(err.Error(), "installing nonexistent-tool-abc") {
+			t.Errorf("error = %q, want mention of installing", err.Error())
+		}
+	})
+}
+
+func TestEnsureInstalledMissingNoInstallCmd(t *testing.T) {
+	// Dep not installed, no InstallCmd — covers line 33.
+	withKnownDeps(t, []Dep{
+		{Name: "nonexistent-tool-abc", InstallCmd: "", Required: false},
+	}, func() {
+		err := EnsureInstalled("nonexistent-tool-abc")
+		if err == nil {
+			t.Fatal("expected error for dep with no install cmd")
+		}
+
+		if !strings.Contains(err.Error(), "no auto-install path") {
+			t.Errorf("error = %q, want 'no auto-install path'", err.Error())
+		}
+	})
+}
+
+func TestEnsureAllSkipsNonRequired(t *testing.T) {
+	// Only non-required deps — EnsureAll should skip them all.
+	withKnownDeps(t, []Dep{
+		{Name: "optional-a", InstallCmd: "example.com/a@latest", Required: false},
+		{Name: "optional-b", InstallCmd: "", Required: false},
+	}, func() {
+		installed := EnsureAll()
+		if len(installed) != 0 {
+			t.Errorf("expected no installs, got: %v", installed)
+		}
+	})
+}
+
+func TestEnsureAllSkipsAlreadyInstalled(t *testing.T) {
+	// "go" is already installed and required — should not appear in the
+	// installed list because it's already present.
+	withKnownDeps(t, []Dep{
+		{Name: "go", InstallCmd: "example.com/fake@latest", Required: true},
+	}, func() {
+		installed := EnsureAll()
+		if len(installed) != 0 {
+			t.Errorf("expected no installs for already-installed dep, got: %v", installed)
+		}
+	})
+}
+
+func TestEnsureAllSkipsEmptyInstallCmd(t *testing.T) {
+	// Required but no InstallCmd — should be skipped (line 57).
+	withKnownDeps(t, []Dep{
+		{Name: "nonexistent-tool-xyz", InstallCmd: "", Required: true},
+	}, func() {
+		installed := EnsureAll()
+		if len(installed) != 0 {
+			t.Errorf("expected no installs for dep with empty InstallCmd, got: %v", installed)
+		}
+	})
+}
+
+func TestEnsureAllInstallFails(t *testing.T) {
+	// Required, not installed, has InstallCmd but it will fail — exercises
+	// the Install error path in EnsureAll (line 60 returns non-nil err).
+	withKnownDeps(t, []Dep{
+		{Name: "nonexistent-tool-xyz", InstallCmd: "example.invalid/bad@latest", Required: true},
+	}, func() {
+		installed := EnsureAll()
+		if len(installed) != 0 {
+			t.Errorf("expected no installs when install fails, got: %v", installed)
+		}
+	})
+}
+
+func TestStatusInstalledDep(t *testing.T) {
+	// "go" is installed — Status should show "installed" for it.
+	withKnownDeps(t, []Dep{
+		{Name: "go", InstallCmd: "", Required: false},
+	}, func() {
+		s := Status()
+		if !strings.Contains(s, "go") {
+			t.Error("Status should mention go")
+		}
+
+		if !strings.Contains(s, "installed") {
+			t.Error("Status should show 'installed' for go")
+		}
+	})
+}
+
+func TestStatusMissingRequiredDep(t *testing.T) {
+	// Missing required dep — should show "MISSING (auto-installable)".
+	withKnownDeps(t, []Dep{
+		{Name: "nonexistent-required-xyz", InstallCmd: "example.com/x@latest", Required: true},
+	}, func() {
+		s := Status()
+		if !strings.Contains(s, "MISSING (auto-installable)") {
+			t.Errorf("Status = %q, want 'MISSING (auto-installable)'", s)
+		}
+	})
+}
+
+func TestStatusMissingOptionalDep(t *testing.T) {
+	// Missing optional dep — should show "missing (optional)".
+	withKnownDeps(t, []Dep{
+		{Name: "nonexistent-optional-xyz", InstallCmd: "", Required: false},
+	}, func() {
+		s := Status()
+		if !strings.Contains(s, "missing (optional)") {
+			t.Errorf("Status = %q, want 'missing (optional)'", s)
+		}
+	})
+}
+
+func TestKnownDepsAllHaveNames(t *testing.T) {
+	for i, d := range KnownDeps {
+		if d.Name == "" {
+			t.Errorf("KnownDeps[%d] has empty Name", i)
+		}
+	}
+}
+
+func TestKnownDepsRequiredHaveInstallCmd(t *testing.T) {
+	for _, d := range KnownDeps {
+		if d.Required && d.InstallCmd == "" {
+			t.Errorf("required dep %q has no InstallCmd", d.Name)
+		}
+	}
+}
+
+func TestInstallEmptyName(t *testing.T) {
+	dep := Dep{Name: "", InstallCmd: ""}
+
+	err := Install(dep)
+	if err == nil {
+		t.Error("expected error for dep with empty name and no install cmd")
+	}
+}
+
+func TestEnsureInstalledEmptyName(t *testing.T) {
+	err := EnsureInstalled("")
+	if err == nil {
+		t.Error("expected error for empty name")
+	}
+}

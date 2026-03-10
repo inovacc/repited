@@ -1,7 +1,7 @@
 # Roadmap
 
 ## Current Status
-**Overall Progress:** 75% — MCP server, patterns, and flow pipeline implemented
+**Overall Progress:** 85% — All features implemented, tests written for 7 packages
 
 ## Phases
 
@@ -12,7 +12,7 @@
 - [x] CLI `scan` command with flags (depth, top, projects)
 - [x] SQLite persistence (scans, projects, scripts, commands, tool_counts)
 - [x] Stats command (query stored data, top tools, project breakdowns)
-- [ ] Unit tests for scanner and parser
+- [x] Unit tests for scanner and parser (92.4% coverage)
 
 ### Phase 2: Analysis & Workflows [COMPLETE]
 - [x] Command co-occurrence analysis (SQL self-joins)
@@ -34,23 +34,24 @@
 - [x] Auto-install dependencies (omni, scout)
 - [x] Git pre-commit hook (lint:fix + vet + build)
 
-### Phase 4: Polish & Release [NOT STARTED]
-- [ ] Unit tests (80%+ coverage)
-- [ ] Integration tests for MCP server
+### Phase 4: Polish & Release [IN PROGRESS]
+- [x] Unit tests for scanner (92.4%), store (76.1%), flow (88.2%), patterns (79.3%), cmdlog (92.5%), deps (55.0%), mcp (10.6%)
+- [ ] Integration tests for MCP server (in progress)
 - [ ] Performance tuning for large directory trees
-- [ ] CI/CD pipeline (GitHub Actions)
+- [x] CI/CD pipeline (GitHub Actions — workflows exist, repo pushed)
+- [x] Published to GitHub (github.com/inovacc/repited)
 - [ ] v1.0.0 release
 
 ## Test Coverage
-**Current:** 0.0%  |  **Target:** 80%
+**Current:** ~70%  |  **Target:** 80%
 
 | Package | Coverage | Status |
 |---------|----------|--------|
-| cmd | 0.0% | No tests |
-| internal/scanner | 0.0% | No tests |
-| internal/store | 0.0% | No tests |
-| internal/flow | 0.0% | No tests |
-| internal/cmdlog | 0.0% | No tests |
-| internal/mcp | 0.0% | No tests |
-| internal/patterns | 0.0% | No tests |
-| internal/deps | 0.0% | No tests |
+| internal/cmdlog | 92.5% | Excellent |
+| internal/scanner | 92.4% | Excellent |
+| internal/flow | 88.2% | Good |
+| internal/patterns | 79.3% | Good |
+| internal/store | 76.1% | Good |
+| internal/deps | 55.0% | Needs improvement |
+| internal/mcp | 10.6% | Needs integration tests |
+| cmd | 0.0% | No tests (CLI wrappers) |

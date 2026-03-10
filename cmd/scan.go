@@ -30,6 +30,7 @@ func init() {
 	scanCmd.Flags().IntP("top", "t", 20, "number of top tools to display")
 	scanCmd.Flags().BoolP("projects", "p", false, "show per-project breakdown")
 	scanCmd.Flags().StringP("db", "", defaultDBPath(), "SQLite database path")
+	scanCmd.Flags().StringSlice("exclude", nil, "Additional directory names to skip during scan")
 }
 
 func defaultDBPath() string {
@@ -46,10 +47,14 @@ func runScan(cmd *cobra.Command, args []string) error {
 	top, _ := cmd.Flags().GetInt("top")
 	showProjects, _ := cmd.Flags().GetBool("projects")
 	dbPath, _ := cmd.Flags().GetString("db")
+	exclude, _ := cmd.Flags().GetStringSlice("exclude")
 
 	_, _ = fmt.Fprintf(os.Stdout, "Scanning %s (depth=%d)...\n", dir, depth)
 
-	result, err := scanner.Scan(dir, depth)
+	result, err := scanner.Scan(dir, scanner.ScanOptions{
+		MaxDepth: depth,
+		Exclude:  exclude,
+	})
 	if err != nil {
 		return fmt.Errorf("scan failed: %w", err)
 	}

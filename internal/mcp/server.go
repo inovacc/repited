@@ -217,7 +217,7 @@ func registerScanTool(server *mcp.Server) {
 			top = 20
 		}
 
-		result, err := scanner.Scan(dir, depth)
+		result, err := scanner.Scan(dir, scanner.ScanOptions{MaxDepth: depth})
 		if err != nil {
 			return textResult(fmt.Sprintf("Scan failed: %s", err), true), nil, nil
 		}

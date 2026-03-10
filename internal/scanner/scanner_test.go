@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -390,7 +391,7 @@ func TestScanFindsProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Scan(root, 3)
+	result, err := Scan(root, ScanOptions{MaxDepth: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +412,7 @@ func TestScanFindsProject(t *testing.T) {
 func TestScanEmptyDir(t *testing.T) {
 	root := t.TempDir()
 
-	result, err := Scan(root, 3)
+	result, err := Scan(root, ScanOptions{MaxDepth: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +439,7 @@ func TestScanSkipsHiddenDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Scan(root, 5)
+	result, err := Scan(root, ScanOptions{MaxDepth: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,7 +466,7 @@ func TestScanDepthLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Scan(root, 2)
+	result, err := Scan(root, ScanOptions{MaxDepth: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +495,7 @@ func TestScanToolCountsSorted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Scan(root, 3)
+	result, err := Scan(root, ScanOptions{MaxDepth: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,5 +506,185 @@ func TestScanToolCountsSorted(t *testing.T) {
 	// First should be the most frequent
 	if result.ToolCounts[0].Count < result.ToolCounts[1].Count {
 		t.Error("tool counts should be sorted descending")
+	}
+}
+
+// ── Exclude patterns ──
+
+func TestScanDefaultExcludesSkipNodeModules(t *testing.T) {
+	root := t.TempDir()
+
+	// Project inside node_modules — should be skipped by default excludes.
+	proj := filepath.Join(root, "node_modules", "somelib")
+	if err := os.MkdirAll(filepath.Join(proj, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(proj, ".scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(proj, ".scripts", "x.sh"), []byte("go build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Scan(root, ScanOptions{MaxDepth: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Projects) != 0 {
+		t.Errorf("expected 0 projects (node_modules excluded), got %d", len(result.Projects))
+	}
+}
+
+func TestScanDefaultExcludesSkipVendor(t *testing.T) {
+	root := t.TempDir()
+
+	proj := filepath.Join(root, "vendor", "dep")
+	if err := os.MkdirAll(filepath.Join(proj, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(proj, ".scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(proj, ".scripts", "x.sh"), []byte("go build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Scan(root, ScanOptions{MaxDepth: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Projects) != 0 {
+		t.Errorf("expected 0 projects (vendor excluded), got %d", len(result.Projects))
+	}
+}
+
+func TestScanCustomExclude(t *testing.T) {
+	root := t.TempDir()
+
+	// Project inside "myskipdir" — not excluded by default.
+	proj := filepath.Join(root, "myskipdir", "proj")
+	if err := os.MkdirAll(filepath.Join(proj, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(proj, ".scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(proj, ".scripts", "x.sh"), []byte("go build\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without custom exclude, should find it.
+	result, err := Scan(root, ScanOptions{MaxDepth: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Projects) != 1 {
+		t.Fatalf("expected 1 project without exclude, got %d", len(result.Projects))
+	}
+
+	// With custom exclude, should skip it.
+	result, err = Scan(root, ScanOptions{MaxDepth: 5, Exclude: []string{"myskipdir"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Projects) != 0 {
+		t.Errorf("expected 0 projects with custom exclude, got %d", len(result.Projects))
+	}
+}
+
+func TestScanExcludeDoesNotAffectScriptsDetection(t *testing.T) {
+	root := t.TempDir()
+
+	// A normal project with .scripts — excludes should not prevent finding it.
+	proj := filepath.Join(root, "goodproject")
+	if err := os.MkdirAll(filepath.Join(proj, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(proj, ".scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(proj, ".scripts", "build.sh"), []byte("go build ./...\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Scan(root, ScanOptions{
+		MaxDepth: 5,
+		Exclude:  []string{"somethingelse"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Projects) != 1 {
+		t.Fatalf("expected 1 project, got %d", len(result.Projects))
+	}
+
+	if len(result.Projects[0].Scripts) != 1 {
+		t.Errorf("expected 1 script, got %d", len(result.Projects[0].Scripts))
+	}
+}
+
+// ── Benchmark ──
+
+func BenchmarkScan(b *testing.B) {
+	root := b.TempDir()
+
+	// Create a realistic directory tree with ~100 project dirs.
+	for i := range 100 {
+		proj := filepath.Join(root, fmt.Sprintf("project-%03d", i))
+		if err := os.MkdirAll(filepath.Join(proj, ".git"), 0o755); err != nil {
+			b.Fatal(err)
+		}
+
+		scriptsDir := filepath.Join(proj, ".scripts")
+		if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+			b.Fatal(err)
+		}
+
+		content := "go build ./...\ngo test ./...\ngit status\ngit add .\n"
+		if err := os.WriteFile(filepath.Join(scriptsDir, "build.sh"), []byte(content), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	// Also create some excluded dirs with content (should be skipped).
+	for _, name := range []string{"node_modules", "vendor", ".cache"} {
+		excl := filepath.Join(root, name, "deep", "nested")
+		if err := os.MkdirAll(filepath.Join(excl, ".git"), 0o755); err != nil {
+			b.Fatal(err)
+		}
+
+		if err := os.MkdirAll(filepath.Join(excl, ".scripts"), 0o755); err != nil {
+			b.Fatal(err)
+		}
+
+		if err := os.WriteFile(filepath.Join(excl, ".scripts", "x.sh"), []byte("go build\n"), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ResetTimer()
+
+	for range b.N {
+		result, err := Scan(root, ScanOptions{MaxDepth: 5})
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if len(result.Projects) != 100 {
+			b.Fatalf("expected 100 projects, got %d", len(result.Projects))
+		}
 	}
 }

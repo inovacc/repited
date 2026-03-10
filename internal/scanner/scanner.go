@@ -35,8 +35,20 @@ type ScanResult struct {
 	ToolCounts []ToolCount
 }
 
+// ScanOptions configures the directory scan.
+type ScanOptions struct {
+	MaxDepth int
+	Exclude  []string // directory names to skip (e.g., "node_modules", "vendor", ".cache")
+}
+
+// DefaultExcludes are directory names skipped during every scan.
+var DefaultExcludes = []string{
+	"node_modules", "vendor", ".cache", "__pycache__", ".venv",
+	"target", "build", "dist", ".gradle", ".maven",
+}
+
 // Scan walks rootDir looking for directories containing both .git and .scripts.
-func Scan(rootDir string, maxDepth int) (*ScanResult, error) {
+func Scan(rootDir string, opts ScanOptions) (*ScanResult, error) {
 	var projects []Project
 
 	toolFreq := make(map[string]int)
@@ -44,6 +56,16 @@ func Scan(rootDir string, maxDepth int) (*ScanResult, error) {
 	rootDir, err := filepath.Abs(rootDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolving root dir: %w", err)
+	}
+
+	// Build the exclude set from defaults + user-supplied patterns.
+	excludeSet := make(map[string]struct{}, len(DefaultExcludes)+len(opts.Exclude))
+	for _, e := range DefaultExcludes {
+		excludeSet[e] = struct{}{}
+	}
+
+	for _, e := range opts.Exclude {
+		excludeSet[e] = struct{}{}
 	}
 
 	rootDepth := strings.Count(filepath.ToSlash(rootDir), "/")
@@ -57,16 +79,24 @@ func Scan(rootDir string, maxDepth int) (*ScanResult, error) {
 			return nil
 		}
 
-		// Skip hidden dirs (except the ones we care about)
 		name := d.Name()
+
+		// Skip excluded directories (but never skip the root itself).
+		if path != rootDir {
+			if _, ok := excludeSet[name]; ok {
+				return filepath.SkipDir
+			}
+		}
+
+		// Skip hidden dirs (except the ones we care about)
 		if strings.HasPrefix(name, ".") && name != ".scripts" && name != ".git" {
 			return filepath.SkipDir
 		}
 
 		// Enforce max depth
-		if maxDepth > 0 {
+		if opts.MaxDepth > 0 {
 			currentDepth := strings.Count(filepath.ToSlash(path), "/") - rootDepth
-			if currentDepth > maxDepth {
+			if currentDepth > opts.MaxDepth {
 				return filepath.SkipDir
 			}
 		}

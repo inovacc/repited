@@ -2,14 +2,14 @@
 
 ## v0.1.0 - Foundation
 - **Status:** Complete
-- **Test Coverage:** 0.0% (no tests yet)
+- **Test Coverage:** scanner 92.4%, store 76.1%, cmdlog 92.5%
 - **Goals:**
   - [x] Project scaffolding
   - [x] Directory scanner (find .git + .scripts)
   - [x] Shell command extractor (multi-word commands, pipelines, noise filtering)
   - [x] CLI scan command with table output
   - [x] SQLite persistence (5 tables: scans, projects, scripts, commands, tool_counts)
-  - [ ] Unit tests (80%+ coverage)
+  - [x] Unit tests for core packages
 
 ## v0.2.0 - Analysis & Workflows
 - **Status:** Complete
@@ -22,6 +22,7 @@
 
 ## v0.3.0 - MCP Server & Patterns
 - **Status:** Complete
+- **Test Coverage:** mcp 10.6%, patterns 79.3%, deps 55.0%
 - **Goals:**
   - [x] MCP server with stdio transport (7 tools: flow, scan, stats, relations, patterns, scout, next-steps)
   - [x] `mcp install --global --client claude` writes config to ~/.claude.json
@@ -34,10 +35,12 @@
 
 ## v1.0.0 - First Stable Release
 - **Target:** TBD
-- **Status:** Not Started
+- **Status:** In Progress
 - **Goals:**
-  - [ ] Full test coverage (80%+)
-  - [ ] Integration tests for MCP server
-  - [ ] Documentation complete
-  - [ ] CI/CD pipeline (GitHub Actions)
-  - [ ] Published to GitHub with goreleaser
+  - [x] Unit tests for 7 packages (~70% overall)
+  - [ ] Integration tests for MCP server (target: 50%+)
+  - [x] Documentation complete
+  - [x] CI/CD pipeline (GitHub Actions)
+  - [x] Published to GitHub (github.com/inovacc/repited)
+  - [ ] Performance tuning (--exclude flag, benchmarks)
+  - [ ] goreleaser release

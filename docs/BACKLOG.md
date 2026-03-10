@@ -11,23 +11,15 @@
 ## Items
 
 ### P1 - This Sprint
-- **Unit tests for scanner package** — Small — Test — 0% coverage
-- **Unit tests for store package** — Small — Test — 0% coverage
-- **Unit tests for flow package** — Small — Test — 0% coverage
-- **Unit tests for patterns package** — Small — Test — 0% coverage
-- **Unit tests for cmdlog package** — Small — Test — 0% coverage
-- **Unit tests for deps package** — Small — Test — 0% coverage
-- **Integration tests for MCP server** — Medium — Test — 0% coverage
-- **TODO in cmd/aicontext.go:130,146** — Small — Tech Debt — Generic comments need project-specific customization
+- **Integration tests for MCP server** — Medium — Test — 10.6% coverage, need tool handler tests
+- **Improve deps package coverage** — Small — Test — 55.0%, target 70%+
 
 ### P2 - This Quarter
-- **GitHub remote setup** — Small — Infrastructure — No git remote configured
-- **CI/CD pipeline** — Medium — Infrastructure — GitHub Actions workflows exist but no remote
 - **JSON output format for scan/stats** — Small — Feature
 - **Filter by tool name or pattern** — Small — Feature
-- **Exclude patterns flag** — Small — Feature
 - **Pattern editing CLI** — Medium — Feature — Enable/disable rules, modify patterns
 - **Custom user-defined patterns** — Medium — Feature — Let users create their own workflow patterns
+- **v1.0.0 release with goreleaser** — Medium — Infrastructure
 
 ### P3 - Future
 - **Interactive TUI mode** — Large — Feature
@@ -48,3 +40,13 @@
 | Pattern detection | Implemented in v0.3.0 | 2026-03-09 |
 | Pre-commit hook | Implemented in v0.3.0 | 2026-03-09 |
 | Tool dependency graph | Implemented as relations command | 2026-03-09 |
+| Unit tests for scanner | 92.4% coverage | 2026-03-09 |
+| Unit tests for store | 76.1% coverage | 2026-03-09 |
+| Unit tests for flow | 88.2% coverage | 2026-03-09 |
+| Unit tests for patterns | 79.3% coverage | 2026-03-09 |
+| Unit tests for cmdlog | 92.5% coverage | 2026-03-09 |
+| Unit tests for deps | 55.0% coverage | 2026-03-09 |
+| TODO in cmd/aicontext.go | Replaced with repited-specific content | 2026-03-09 |
+| GitHub remote setup | Published to github.com/inovacc/repited | 2026-03-09 |
+| CI/CD pipeline | GitHub Actions workflows active | 2026-03-09 |
+| Exclude patterns flag | Added --exclude flag and DefaultExcludes | 2026-03-09 |

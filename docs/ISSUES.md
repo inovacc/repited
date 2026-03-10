@@ -2,20 +2,15 @@
 
 ## Open Issues
 
-### No git remote configured
+### MCP server low test coverage
 - **Severity:** Medium
-- **Description:** Project has no git remote set up. GitHub Actions workflows exist but won't run.
-- **Workaround:** Development works fine locally. Set remote when ready to publish.
+- **Description:** MCP server package has only 10.6% coverage. Only helper functions are tested, not tool handlers.
+- **Impact:** No regression protection for the 7 MCP tool handlers.
 
-### Zero test coverage
-- **Severity:** High
-- **Description:** All 9 packages have 0% test coverage. Target is 80%.
-- **Impact:** No regression protection for scanner, store, flow, MCP server, or patterns.
-
-### TODO comments in aicontext.go
+### deps package coverage below target
 - **Severity:** Low
-- **Description:** Lines 130 and 146 have generic TODO comments (`// TODO: customize for your app`)
-- **Workaround:** Not blocking. AIContext command works but has scaffold-generated comments.
+- **Description:** deps package at 55.0% coverage. Install() and EnsureAll() are hard to test without running real installs.
+- **Workaround:** Core detection logic is tested. Install paths are simple exec wrappers.
 
 ## Resolved Issues
 
@@ -26,3 +21,6 @@
 | File paths detected as commands | Added / and extension filters | 2026-03-09 |
 | go vet redundant newline in relations.go | Fixed fmt.Println("...\n") → fmt.Println("...") + fmt.Println() | 2026-03-09 |
 | filepath import removed from scan.go | Re-added since filepath.Dir(dbPath) was still used | 2026-03-09 |
+| No git remote configured | Created repo at github.com/inovacc/repited | 2026-03-09 |
+| Zero test coverage | Tests written for all 7 internal packages (~70% overall) | 2026-03-09 |
+| TODO comments in aicontext.go | Replaced with repited-specific categories and structure | 2026-03-09 |
